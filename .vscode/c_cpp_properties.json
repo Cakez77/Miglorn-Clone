@@ -1,0 +1,30 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${default}",
+                "${workspaceFolder}/src",
+                "${VULKAN_SDK}/Include"
+            ],
+            "defines": [
+                "_DEBUG",
+                "CAKEZGINE",
+                "WINDOWS_BUILD",
+                "_CRT_SECURE_NO_WARNINGS"
+            ],
+            "windowsSdkVersion": "10.0.22000.0",
+            "compilerPath": "cl.exe",
+            "cStandard": "c17",
+            "intelliSenseMode": "windows-msvc-x64",
+            "compilerArgs": [
+                "-Zc:strictStrings-",
+                "/W4 ",
+                "-we4296",
+                "-wd4201",
+                "-wd4505"
+            ]
+        }
+    ],
+    "version": 4
+}

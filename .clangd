@@ -1,0 +1,19 @@
+CompileFlags:
+  Add:
+    - "-DSDL3"
+    - "-DENGINE"
+    - "-DDEBUG"
+    - "-DNOMINMAX"
+    - "-ferror-limit=0"
+    - "-std=c++20"
+
+    - "-Ithird_party"
+    - "-Ithird_party/include"
+    - "-Iassets/shaders"
+
+    - "-Wno-writable-strings"
+    - "-Wno-sign-compare"
+    - "-Wno-deprecated-declarations"
+    - "-Wno-format-security"
+    - "-Wno-switch"
+    - "-Wno-c99-designator"
