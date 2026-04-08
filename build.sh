@@ -12,6 +12,8 @@ warnings="-Wno-writable-strings -Wno-c99-designator -Wno-nullability-completenes
 clang++ -std=c++20 $warnings -g main.cpp -o main.exe $defines $includes $libs "-DSDL3"
 echo Succesfully build PC Version.
 
+# also my games run like shit on the web in debug mode. they run fine with -O3, -sASSERTIONS=0, -sSAFE_HEAP=0, no sanitizer
+
 # WEB
 if $BUILD_WEB ; then
   inclWeb="-I. -I ./third_party/include"
@@ -19,7 +21,7 @@ if $BUILD_WEB ; then
   webOptions="-s TOTAL_STACK=64MB -s INITIAL_MEMORY=128MB -s ASSERTIONS -s USE_SDL=3 -s FULL_ES3=1 -DWEB_BUILD"
   libsWeb="third_party/lib/libSDL3.a third_party/lib/libSDL3_image.a third_party/lib/libSDL3_ttf.a -lm  third_party/lib/libpng16.a third_party/lib/libzlibstatic.a"
   preload="--preload-file assets"
-  warnings="-Wno-c99-designator -Wno-writable-strings -Wno-nullability-completeness -Wno-writable-strings, -Wno-missing-braces"
+  warnings="-Wno-c99-designator -Wno-writable-strings -Wno-nullability-completeness -Wno-writable-strings -Wno-missing-braces"
   C:/emsdk/upstream/emscripten/em++.bat -o ./index.html main.cpp -Os -Wall $warnings $preload $webOptions $inclWeb $shellHTML $libsWeb 
 
   testOutput="test"

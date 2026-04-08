@@ -110,6 +110,9 @@ void app_loop()
 	gameState.currentTick = SDL_GetPerformanceCounter();
 	const float dt = (gameState.currentTick - gameState.lastTick) * secondsPerTick;
 
+	// const float FPS = 1 / dt;
+	// SDL_Log("FPS: %.0f", FPS);
+
 	gameState.gameTime += dt;
 
 	// Update Input/Window
@@ -256,6 +259,7 @@ int main(void)
 
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+	
 	gameState.window = SDL_CreateWindow(WINDOW_TITLE, WORLD_SIZE.x, WORLD_SIZE.y, SDL_WINDOW_OPENGL);
 	if(!gameState.window)
 	{
@@ -264,13 +268,16 @@ int main(void)
 
 	SDL_GLContext glContext = SDL_GL_CreateContext(gameState.window);
 	SDL_SetWindowPosition(gameState.window, -1800, 200);
+	#ifndef WEB_BUILD
 	SDL_GL_SetSwapInterval(0); // Turn off VSync, makes it lagg
+	#endif
+
 
 	// Renderer init
 	gl_init(gameState.window);
 
 	#ifdef __EMSCRIPTEN__ 
-	emscripten_set_main_loop(app_loop, 0, 0); 
+	emscripten_set_main_loop(app_loop, 0, 0);
 	#else 
 	while (gameState.running) 
 	{ 

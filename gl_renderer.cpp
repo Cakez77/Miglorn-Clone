@@ -579,16 +579,17 @@ void gl_render(SDL_Window* window, float r)
     glDisable(GL_BLEND);
   }
 
-  // Sleep for fps limit
-  // static Timer2 timer = {};
+  // FPS limit
+  #ifndef WEB_BUILD
   static u64 startTick = SDL_GetPerformanceCounter();
   static u64 ticksPerSecond = SDL_GetPerformanceFrequency();
   static const double secondsPerTick = 1.0 / ticksPerSecond;
-  const double limit = 60.0;
+  constexpr double limit = 120.0;
 
   u64 currentTick = SDL_GetPerformanceCounter();
   const double elapsedSeconds = (currentTick - startTick) * secondsPerTick;
 
   precise_wait_seconds(1.0 / limit - elapsedSeconds);
   startTick = SDL_GetPerformanceCounter();
+  #endif
 }
