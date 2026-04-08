@@ -1,31 +1,34 @@
+#!bin/bash
+
+# Turn off to build to web
+# BUILD_WEB=false
+
 defines=""
 includes="-Ithird_party/include -Iassets/shaders"
 
-# Raylib
-# libs="-Lthird_party/lib -lraylib -luser32 -lshell32 -lgdi32 -lmsvcrt -lwinmm -nostdlib"
-# clang++ -std=c++20 -Wno-c99-designator -g game.cpp -o game.exe $defines $includes $libs "-DRAYLIB"
-# WEB
-libsWeb="-L ./third_party/lib"
-inclWeb="-I. -I ./third_party/include"
-shellHTML="--shell-file ./third_party/include/shell.html"
-webOptions="-Wno-c99-designator -s ASYNCIFY -s TOTAL_STACK=64MB -s INITIAL_MEMORY=128MB -s ASSERTIONS -s USE_GLFW=3 -DPLATFORM_WEB -DRAYLIB"
-C:/emsdk/upstream/emscripten/emcc.bat -o ./index.html game.cpp -Os -Wall --preload-file assets/textures $libsWeb $inclWeb $shellHTML $webOptions -lraylib
-# emcc 
-
-# SDL3
-# libs="-Lthird_party/lib -lsdl3 -luser32 -lshell32 -lgdi32 -lmsvcrt -lwinmm -nostdlib"
-# clang++ -std=c++20 -Wno-c99-designator -g game.cpp -o game.exe $defines $includes $libs "-DSDL3"
-# WEB
-# libsWeb="-L ./third_party/lib"
-# inclWeb="-I. -I ./third_party/include"
-# shellHTML="--shell-file ./third_party/include/shell.html"
-# webOptions="-s ASYNCIFY -s TOTAL_STACK=64MB -s INITIAL_MEMORY=128MB -s ASSERTIONS -s USE_SDL=3 -DPLATFORM_WEB -DSDL3"
-# C:/emsdk/upstream/emscripten/emcc.bat -o ./index.html game.cpp -Os -Wall $libsWeb $inclWeb $shellHTML $webOptions -lsdl3
+# PC
+libs="-Lthird_party/lib -lsdl3 -lopengl32 -luser32 -lshell32 -lgdi32 -lmsvcrt -lwinmm -nostdlib"
+warnings="-Wno-writable-strings -Wno-c99-designator -Wno-nullability-completeness"
+clang++ -std=c++20 $warnings -g main.cpp -o main.exe $defines $includes $libs "-DSDL3"
+echo Succesfully build PC Version.
 
 # WEB
-# emcc -o ./index.html game.cpp -Os -Wall -L ./third_party/lib -I. -I ./third_party/include -s USE_GLFW=3 -s ASYNCIFY --shell-file ./third_party/include/shell.html -s TOTAL_STACK=64MB -s INITIAL_MEMORY=128MB -s ASSERTIONS -DPLATFORM_WEB 
+if $BUILD_WEB ; then
+  inclWeb="-I. -I ./third_party/include"
+  shellHTML="--shell-file ./third_party/include/shell.html"
+  webOptions="-s TOTAL_STACK=64MB -s INITIAL_MEMORY=128MB -s ASSERTIONS -s USE_SDL=3 -s FULL_ES3=1 -DWEB_BUILD"
+  libsWeb="third_party/lib/libSDL3.a third_party/lib/libSDL3_image.a third_party/lib/libSDL3_ttf.a -lm  third_party/lib/libpng16.a third_party/lib/libzlibstatic.a"
+  preload="--preload-file assets"
+  warnings="-Wno-c99-designator -Wno-writable-strings -Wno-nullability-completeness -Wno-writable-strings, -Wno-missing-braces"
+  C:/emsdk/upstream/emscripten/em++.bat -o ./index.html main.cpp -Os -Wall $warnings $preload $webOptions $inclWeb $shellHTML $libsWeb 
 
-# OLD
-# "cmake --build build"
-# "zig c++ -Lthird_party/lib -lraylib -luser32 -lshell32 -lgdi32 -lmsvcrt -lwinmm -Ithird_party/include -o game.exe game.cpp"
-# "clang game.c -o game.exe -g -Lthird_party/lib -lraylib -luser32 -lshell32 -lgdi32 -lmsvcrt -lwinmm -Ithird_party/include"
+  testOutput="test"
+  cp index.* $testOutput
+fi
+
+
+# C:\emsdk\upstream\emscripten\em++.bat -O3 -DNDEBUG -sUSE_SDL=0 -sALLOW_MEMORY_GROWTH=1 --shell-file \
+# C:/Users/User/Development/sdl3-sample/shell.html --preload-file C:/Users/User/Development/sdl3-sample/assets@/assets \
+# CMakeFiles/sdl3-sample.dir/src/main.cpp.o -o index.html  _deps/sdl3-build/libSDL3.a  _deps/sdl3_image-build/libSDL3_image.a  \
+# -lm  _deps/sdl3_image-build/external/libpng-build/libpng16.a  _deps/sdl3_image-build/external/zlib-build/libzlibstatic.a
+

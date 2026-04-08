@@ -3,6 +3,7 @@ CompileFlags:
     - "-DSDL3"
     - "-DENGINE"
     - "-DDEBUG"
+    - "-DWEB_BUILD"
     - "-DNOMINMAX"
     - "-ferror-limit=0"
     - "-std=c++20"
