@@ -8,9 +8,9 @@ CompileFlags:
     - "-ferror-limit=0"
     - "-std=c++20"
 
-    - "-Ithird_party"
-    - "-Ithird_party/include"
-    - "-Iassets/shaders"
+    - "-I../third_party"
+    - "-I../third_party/include"
+    - "-I../assets/shaders"
 
     - "-Wno-writable-strings"
     - "-Wno-sign-compare"

@@ -1,0 +1,4 @@
+
+
+Portions of this software are copyright © 2024 The FreeType
+Project (https://freetype.org).  All rights reserved.

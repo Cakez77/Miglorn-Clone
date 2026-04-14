@@ -1,13 +1,17 @@
 #version 300 es
 
 // Input
-layout (location = 0) in vec2 atlasPosIn;
+// layout (location = 0) in vec2 atlasPosIn;
+layout (location = 0) in int atlasPosPacked;
 layout (location = 1) in vec2 spriteSizeIn;
 layout (location = 2) in vec2 posIn;
 layout (location = 3) in vec2 sizeIn;
+layout (location = 4) in int matrixIdx;
+layout (location = 5) in int fontIdxIn;
 
 // Output
 flat out vec2 spriteSize;
+flat out int fontIdx;
 out vec2 textureCoords;
 out vec2 uv;
 
@@ -16,7 +20,7 @@ struct GlobalData
   float gameTime;
   float padding;
   ivec2 windowSize;
-  mat4 orthProjGame;
+  mat4 orthProjGame[6];
 };
 
 // Buffers
@@ -47,7 +51,8 @@ void main()
   );
 
   // gl_VertexID is the index into the vertices when calling glDraw
-  vec4 vertexPos = globalData.orthProjGame * vec4(vertices[gl_VertexID], 1, 1);
+  mat4 orthoProj = globalData.orthProjGame[matrixIdx];
+  vec4 vertexPos = orthoProj * vec4(vertices[gl_VertexID], 1, 1);
                    // globalData.orthoProjection * vec4(vertexPos, transform.layer, 1.0);
   gl_Position = vertexPos;
 
@@ -61,6 +66,9 @@ void main()
   spriteSize = spriteSizeIn;
 
   // Texture Coords
+  float atlasPosY = float(uint(atlasPosPacked) >> 16);
+  float atlasPosX = float(uint(atlasPosPacked) & uint(0xFFFF));
+  vec2 atlasPosIn = vec2(atlasPosX, atlasPosY);
   float left = atlasPosIn.x;
   float top = atlasPosIn.y;
   float right = atlasPosIn.x + spriteSizeIn.x;
@@ -74,6 +82,8 @@ void main()
     vec2(right, bottom)
   );
   textureCoords = GPU_COORDS[gl_VertexID];
+
+  fontIdx = fontIdxIn;
 
 
 
