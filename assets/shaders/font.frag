@@ -18,21 +18,21 @@ void main()
   vec4 textureColor = texelFetch(fontArray, ivec3(textureCoords, fontIdx), 0);
 
   bool outline = false;
-  float channel = textureColor.g;
+  float a = textureColor.g;
   if(outline)
   {
-    channel = textureColor.r;
+    a = textureColor.r;
   }
 
-  if(channel == 0.0)
+  if(a == 0.0)
   {
     discard;
   }
 
-  vec4 fontColor = vec4(0.0,0.0,0.0,1.0);
+  vec4 fontColor = vec4(0.0,0.0,0.0,a);
   if(textureColor.g > 0.0)
   {
-    fontColor = vec4(1.0,1.0,1.0,1.0);
+    fontColor = vec4(1.0,1.0,1.0,a);
   }
 
   fragColor = fontColor; 

@@ -3,11 +3,11 @@
 // Input
 // layout (location = 0) in vec2 atlasPosIn;
 layout (location = 0) in int atlasPosPacked;
-layout (location = 1) in vec2 spriteSizeIn;
+layout (location = 1) in int spriteSizeIn;
 layout (location = 2) in vec2 posIn;
 layout (location = 3) in vec2 sizeIn;
-layout (location = 4) in int matrixIdx;
-layout (location = 5) in int fontIdxIn;
+layout (location = 4) in int pack1;
+layout (location = 5) in float layerIn;
 
 // Output
 flat out vec2 spriteSize;
@@ -20,7 +20,7 @@ struct GlobalData
   float gameTime;
   float padding;
   ivec2 windowSize;
-  mat4 orthProjGame[6];
+  mat4 orthProjGame[4];
 };
 
 // Buffers
@@ -49,10 +49,17 @@ void main()
     vec2(0, 1),
     vec2(1, 1)
   );
-
   // gl_VertexID is the index into the vertices when calling glDraw
+
+  int matrixIdx = int(pack1 & 0xF); // first 4 Bits
+  int fontIdxIn = int((pack1 >> 4) & 0xF); // next 4 Bits
+  int renderOptions = int(pack1 >> 8); // last 24 Bits
+
+  fontIdx = fontIdxIn;
+  float layer = layerIn / 200000000.0;
+
   mat4 orthoProj = globalData.orthProjGame[matrixIdx];
-  vec4 vertexPos = orthoProj * vec4(vertices[gl_VertexID], 1, 1);
+  vec4 vertexPos = orthoProj * vec4(vertices[gl_VertexID], layer, 1);
                    // globalData.orthoProjection * vec4(vertexPos, transform.layer, 1.0);
   gl_Position = vertexPos;
 
@@ -63,16 +70,19 @@ void main()
   //###########################################################
 
   // Sprite Size
-  spriteSize = spriteSizeIn;
+  float spriteSizeX = float(uint(spriteSizeIn) & uint(0xFFFF));
+  float spriteSizeY = float(uint(spriteSizeIn) >> 16);
+  spriteSize.x = spriteSizeX;
+  spriteSize.y = spriteSizeY;
 
   // Texture Coords
-  float atlasPosY = float(uint(atlasPosPacked) >> 16);
   float atlasPosX = float(uint(atlasPosPacked) & uint(0xFFFF));
+  float atlasPosY = float(uint(atlasPosPacked) >> 16);
   vec2 atlasPosIn = vec2(atlasPosX, atlasPosY);
   float left = atlasPosIn.x;
   float top = atlasPosIn.y;
-  float right = atlasPosIn.x + spriteSizeIn.x;
-  float bottom = atlasPosIn.y + spriteSizeIn.y;
+  float right = atlasPosIn.x + spriteSizeX;
+  float bottom = atlasPosIn.y + spriteSizeY;
   vec2 GPU_COORDS[6] = vec2[6](
     vec2(left,  top),
     vec2(left,  bottom),
@@ -82,9 +92,6 @@ void main()
     vec2(right, bottom)
   );
   textureCoords = GPU_COORDS[gl_VertexID];
-
-  fontIdx = fontIdxIn;
-
 
 
   // if(bool(transform.renderOptions & RENDERING_OPTION_FLIP_X))

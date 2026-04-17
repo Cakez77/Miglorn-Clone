@@ -8,9 +8,6 @@
 #include "glad/gl.h"
 #endif
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
 // #############################################################################
 //                           OpenGL constants
 // #############################################################################
@@ -366,7 +363,7 @@ bool gl_init(SDL_Window* window)
     glContext.uiTexture =
       gl_create_texture(GL_RGBA8,
                         GL_TEXTURE3,
-                        renderData.uiSpace.x, renderData.uiSpace.y, 0,
+                        renderData->uiSpace.x, renderData->uiSpace.y, 0,
                         GL_RGBA,
                         GL_UNSIGNED_BYTE,
                         GL_CLAMP_TO_EDGE,
@@ -378,7 +375,7 @@ bool gl_init(SDL_Window* window)
     glContext.depthTexture = 
       gl_create_texture(GL_DEPTH_COMPONENT24, 
                         GL_TEXTURE20,
-                        renderData.globalData.windowSize.x, renderData.globalData.windowSize.y, 0,
+                        renderData->globalData.windowSize.x, renderData->globalData.windowSize.y, 0,
                         GL_DEPTH_COMPONENT,
                         GL_UNSIGNED_INT,
                         GL_CLAMP_TO_EDGE,
@@ -462,13 +459,13 @@ bool gl_init(SDL_Window* window)
     offset += sizeof(int) * 1;
 
     // Sprite Size
-    // glVertexAttribIPointer(attribIdx, 2, GL_INT, sizeof(Transform), offset);
-    // glEnableVertexAttribArray(attribIdx);
-    glVertexAttribPointer(attribIdx, 2, GL_FLOAT, GL_FALSE, sizeof(Transform), offset);
+    glVertexAttribIPointer(attribIdx, 1, GL_INT, sizeof(Transform), offset);
     glEnableVertexAttribArray(attribIdx);
+    // glVertexAttribPointer(attribIdx, 2, GL_FLOAT, GL_FALSE, sizeof(Transform), offset);
+    // glEnableVertexAttribArray(attribIdx);
     glVertexAttribDivisor(attribIdx, 1); // the 1 means this data is per instance rather than per vertex
     attribIdx += 1;
-    offset += sizeof(int) * 2;
+    offset += sizeof(int) * 1;
 
     // Position
     glVertexAttribPointer(attribIdx, 2, GL_FLOAT, GL_FALSE, sizeof(Transform), offset);
@@ -484,19 +481,25 @@ bool gl_init(SDL_Window* window)
     attribIdx += 1;
     offset += sizeof(float) * 2;
 
-    // MatrixIdx
+    // pack1 (matrixIdx, fontIdx, renderOptions)
     glVertexAttribIPointer(attribIdx, 1, GL_INT, sizeof(Transform), offset);
     glEnableVertexAttribArray(attribIdx);
     glVertexAttribDivisor(attribIdx, 1); // the 1 means this data is per instance rather than per vertex
     attribIdx += 1;
     offset += sizeof(int);
 
-    // FontIdx
-    glVertexAttribIPointer(attribIdx, 1, GL_INT, sizeof(Transform), offset);
+    // Layer
+    glVertexAttribPointer(attribIdx, 1, GL_FLOAT, GL_FALSE, sizeof(Transform), offset);
     glEnableVertexAttribArray(attribIdx);
     glVertexAttribDivisor(attribIdx, 1); // the 1 means this data is per instance rather than per vertex
     attribIdx += 1;
-    offset += sizeof(int);
+    offset += sizeof(float) * 1;
+
+    // glVertexAttribIPointer(attribIdx, 1, GL_INT, sizeof(Transform), offset);
+    // glEnableVertexAttribArray(attribIdx);
+    // glVertexAttribDivisor(attribIdx, 1); // the 1 means this data is per instance rather than per vertex
+    // attribIdx += 1;
+    // offset += sizeof(int);
 
     glBindVertexArray(0); // Unbind
   }
@@ -508,7 +511,7 @@ bool gl_init(SDL_Window* window)
   {
     glGenBuffers(1, &glContext.globalUBO);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, glContext.globalUBO);
-    glBufferData(GL_UNIFORM_BUFFER, sizeof(GlobalData), &renderData.globalData, GL_DYNAMIC_DRAW);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(GlobalData), &renderData->globalData, GL_DYNAMIC_DRAW);
   }
 
   // sRGB output (even if input texture is non-sRGB -> don't rely on texture used)
@@ -519,8 +522,33 @@ bool gl_init(SDL_Window* window)
   // glEnable(GL_FRAMEBUFFER_SRGB);
   // glDisable(GL_MULTISAMPLE); // disable multisampling
 
-  load_font(FONT_HEADING, "assets/fonts/alagard.ttf", 16, 1);
-  load_font(FONT_TEXT, "assets/fonts/NameHereCondensed.ttf", 16, 1);
+  load_font(FONT_HEADING_1X, "assets/fonts/alagard.ttf", 16, 1);
+  load_font(FONT_HEADING_2X, "assets/fonts/alagard.ttf", 32, 2);
+  load_font(FONT_HEADING_3X, "assets/fonts/alagard.ttf", 48, 3);
+  load_font(FONT_TEXT_1X, "assets/fonts/NameHereCondensed.ttf", 16, 1);
+  load_font(FONT_TEXT_2X, "assets/fonts/NameHereCondensed.ttf", 32, 2);
+  load_font(FONT_TEXT_3X, "assets/fonts/NameHereCondensed.ttf", 48, 3);
+
+  // Init UI Cam
+  {
+		const float uiScale = renderData->uiScale;
+    const Vec2 windowSize = vec_2(renderData->globalData.windowSize);
+    OrthographicCamera2D& uiCam = renderData->uiCam;
+    uiCam.dimensions = renderData->uiSpace;
+    uiCam.position = {}; // Top Left
+    uiCam.zoom = 4; // Same as game for now, clean Pixel Art
+
+    float zoom = uiCam.zoom? uiCam.zoom : 1.0f;
+    Vec2 dimensions =  uiCam.dimensions / zoom;
+    renderData->globalData.orthProjGame[ORTHO_PROJ_UI] = 
+      orthographic_projection(0.0f, dimensions.x, 0.0f, -dimensions.y);
+
+    // Text orthographic projection
+    zoom = 1.0f;
+    dimensions =  uiCam.dimensions / zoom;
+    renderData->globalData.orthProjGame[ORTHO_PROJ_TEXT] = 
+      orthographic_projection(0.0f, dimensions.x, 0.0f, -dimensions.y);
+  }
 
 
   return true;
@@ -534,7 +562,7 @@ void gl_render(SDL_Window* window)
   // Reload Fonts if needed
   for(int i = 0; i < FONT_COUNT; i++)
   {
-    Font& font = renderData.fonts[i];
+    Font& font = renderData->fonts[i];
     if(font.reload)
     {
       Texture& texture = glContext.fontTextures[i];
@@ -566,16 +594,14 @@ void gl_render(SDL_Window* window)
 
   // Calc Lightmap Camera & upload GlobalData to GPU
   {
-    renderData.lightsCam.dimensions = LIGHT_MAP_SIZE;
-    renderData.lightsCam.position = renderData.gameCam.position;
-    renderData.lightsCam.zoom = max(1.0f, renderData.gameCam.zoom - 1.0f);
+    OrthographicCamera2D& lightsCam = renderData->lightsCam;
+    lightsCam.dimensions = renderData->gameCam.dimensions;
+    lightsCam.position = renderData->gameCam.position;
+    lightsCam.zoom = 8;
+    const Vec2 dimensions =  lightsCam.dimensions / lightsCam.zoom;
+    const Vec2 pos = lightsCam.position;
 
-    const OrthographicCamera2D& lightsCam = renderData.lightsCam;
-    float zoom = lightsCam.zoom? lightsCam.zoom : 1.0f;
-    Vec2 dimensions =  lightsCam.dimensions / zoom;
-    Vec2 pos = lightsCam.position;
-
-    renderData.globalData.orthProjGame[ORTHO_PROJ_LIGHTS] =
+    renderData->globalData.orthProjGame[ORTHO_PROJ_LIGHTS] =
       orthographic_projection(pos.x-dimensions.x / 2.0f,
                               pos.x+dimensions.x / 2.0f,
                               -pos.y-dimensions.y / 2.0f,
@@ -583,23 +609,34 @@ void gl_render(SDL_Window* window)
   }
 
   // Resize UI Texture
-  if(glContext.uiTexture.width != renderData.uiSpace.x || 
-     glContext.uiTexture.height != renderData.uiSpace.y)
+  if(glContext.uiTexture.width != renderData->uiSpace.x || 
+     glContext.uiTexture.height != renderData->uiSpace.y)
   {
     glBindTexture(GL_TEXTURE_2D, glContext.uiTexture.ID);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, renderData.uiSpace.x, renderData.uiSpace.y, 
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, renderData->uiSpace.x, renderData->uiSpace.y, 
                  0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glContext.uiTexture.width = renderData->uiSpace.x;
+    glContext.uiTexture.height = renderData->uiSpace.y;
+  
+    // Init UI Cam
+    {
+      OrthographicCamera2D& uiCam = renderData->uiCam;
+      uiCam.dimensions = renderData->uiSpace;
+      uiCam.position = {}; // Top Left
+      uiCam.zoom = renderData->gameCam.zoom; // Same as game for now, clean Pixel Art
 
-    // glContext.uiTexture =
-    //   gl_create_texture(GL_RGBA8,
-    //                     GL_TEXTURE3,
-    //                     renderData.globalData.windowSize.x, renderData.globalData.windowSize.y, 0,
-    //                     // 1220, 686, 0,
-    //                     GL_RGBA,
-    //                     GL_UNSIGNED_BYTE,
-    //                     GL_CLAMP_TO_EDGE,
-    //                     // GL_NEAREST);
-    //                     GL_LINEAR);
+      float zoom = uiCam.zoom? uiCam.zoom : 1.0f;
+      Vec2 dimensions =  uiCam.dimensions / zoom;
+      renderData->globalData.orthProjGame[ORTHO_PROJ_UI] = 
+        orthographic_projection(0.0f, dimensions.x, 0.0f, -dimensions.y);
+
+      // Text orthographic projection
+      zoom = 1.0f;
+      dimensions =  uiCam.dimensions / zoom;
+      renderData->globalData.orthProjGame[ORTHO_PROJ_TEXT] = 
+        orthographic_projection(0.0f, dimensions.x, 0.0f, -dimensions.y);
+    }
+    return;
   }
 
   glUseProgram(glContext.mainProgram.ID);
@@ -610,38 +647,38 @@ void gl_render(SDL_Window* window)
 
   // Window changed size, query size again
   {
-    SDL_GetWindowSize(window, &renderData.globalData.windowSize.x, &renderData.globalData.windowSize.y);
+    SDL_GetWindowSize(window, &renderData->globalData.windowSize.x, 
+      &renderData->globalData.windowSize.y);
   }
-  glViewport(0, 0, renderData.globalData.windowSize.x, renderData.globalData.windowSize.y);
+  glViewport(0, 0, renderData->globalData.windowSize.x, renderData->globalData.windowSize.y);
 
   // Needs to be enabled so clear depth works, stupid
   glDepthMask(GL_TRUE);
   glClearColor(0, 0, 0, 1);
   // glClearDepthf(0.0f);
-  // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  glClear(GL_COLOR_BUFFER_BIT);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   // Copy Global Data to the GPU
   glBindBufferBase(GL_UNIFORM_BUFFER, 4, glContext.globalUBO);
-  glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GlobalData), &renderData.globalData);
+  glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GlobalData), &renderData->globalData);
 
   // Render Game
-  if(renderData.transformCount > 0)
+  if(renderData->transformCount > 0)
   {
     // Upload transforms (Into Vertext Array)
-    const u64 size = sizeof(Transform) * renderData.transformCount;
+    const u64 size = sizeof(Transform) * renderData->transformCount;
     const u32 offset = 0;
-    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData.transforms[0]);
+    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData->transforms[0]);
     
     // Draw Transforms
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData.transformCount);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData->transformCount);
 
     // Clear Data
-    renderData.transformCount = 0;
+    renderData->transformCount = 0;
   }
 
   // Apply Lighting
-  if(renderData.lightCount > 0)
+  if(renderData->lightCount > 0)
   {
     glViewport(0, 0, LIGHT_MAP_SIZE.x,  LIGHT_MAP_SIZE.y);
     // glUseProgram(glContext.gameProgram.ID);
@@ -653,21 +690,22 @@ void gl_render(SDL_Window* window)
 
     // Clear Color
     {
-      const Vec4 ambientColor = {180.0f/255.0f, 180.0f/255.0f, 0.0f, 180.0f/255.0f};
+      // const Vec4 ambientColor = {180.0f/255.0f, 180.0f/255.0f, 0.0f, 180.0f/255.0f};
+      const Vec4 ambientColor = {180.0f/255.0f, 180.0f/255.0f, 0.0f, 1.0f};
       glClearColor(ambientColor.r, ambientColor.g, ambientColor.b, ambientColor.a);
       glClear(GL_COLOR_BUFFER_BIT);
     }
 
     // Upload transforms (Into Vertext Array)
-    const u64 size = sizeof(Transform) * renderData.lightCount;
+    const u64 size = sizeof(Transform) * renderData->lightCount;
     const u32 offset = 0;
-    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData.lights[0]);
+    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData->lights[0]);
     
     // Draw Transforms
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData.lightCount);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData->lightCount);
 
     // Clear Data
-    renderData.lightCount = 0;
+    renderData->lightCount = 0;
     glDisable(GL_BLEND);
   }
 
@@ -681,7 +719,7 @@ void gl_render(SDL_Window* window)
   {
     glUseProgram(glContext.lightProgram.ID);
     glBindTexture(GL_TEXTURE_2D, glContext.lightMap.ID);
-    glViewport(0, 0, renderData.globalData.windowSize.x, renderData.globalData.windowSize.y);
+    glViewport(0, 0, renderData->globalData.windowSize.x, renderData->globalData.windowSize.y);
 
     // Blending
     glEnable(GL_BLEND);
@@ -693,39 +731,68 @@ void gl_render(SDL_Window* window)
   }
 
   // Render UI after Lights
-  if(renderData.uiTransformCount > 0)
+  glBindFramebuffer(GL_FRAMEBUFFER, glContext.uiFB.ID);
+  glUseProgram(glContext.mainProgram.ID);
+  glBindTexture(GL_TEXTURE_2D, glContext.textureAtlas.ID);
+  glViewport(0, 0, renderData->uiSpace.x, renderData->uiSpace.y);
+
+  // Clear Color
+  {
+    // const Vec4 uiClearColor = {253.0f/255.0f, 192.0f/255.0f, 116.0f/255.0f, 255.0f/255.0f};
+    const Vec4 uiClearColor = {0, 0, 0, 0};
+    glClearColor(uiClearColor.r, uiClearColor.g, uiClearColor.b, uiClearColor.a);
+    glClear(GL_COLOR_BUFFER_BIT);
+  }
+
+  // UI Transforms
+  if(renderData->uiTransformCount > 0)
+  {
+    // Upload transforms (Into Vertext Array)
+    const u64 size = sizeof(Transform) * renderData->uiTransformCount;
+    const u32 offset = 0;
+    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData->uiTransforms[0]);
+
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
+    // Draw Transforms
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData->uiTransformCount);
+    glDisable(GL_BLEND);
+
+    // Clear Data
+    renderData->uiTransformCount = 0;
+  }
+
+  // Render UI Text after UI
+  if(renderData->textTransformCount > 0)
   {
     glBindFramebuffer(GL_FRAMEBUFFER, glContext.uiFB.ID);
     glUseProgram(glContext.fontProgram.ID);
     glBindTexture(GL_TEXTURE_2D_ARRAY, glContext.fontArray.ID);
-    glViewport(0, 0, renderData.uiSpace.x, renderData.uiSpace.y);
-    // glViewport(0, 0, 1220, 686);
-
-    // Clear Color
-    {
-      // const Vec4 uiClearColor = {253.0f/255.0f, 192.0f/255.0f, 116.0f/255.0f, 255.0f/255.0f};
-      const Vec4 uiClearColor = {0, 0, 0, 0};
-      glClearColor(uiClearColor.r, uiClearColor.g, uiClearColor.b, uiClearColor.a);
-      glClear(GL_COLOR_BUFFER_BIT);
-    }
 
     // Upload transforms (Into Vertext Array)
-    const u64 size = sizeof(Transform) * renderData.uiTransformCount;
+    const u64 size = sizeof(Transform) * renderData->textTransformCount;
     const u32 offset = 0;
-    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData.uiTransforms[0]);
+    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData->textTransforms[0]);
+
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     
     // Draw Transforms
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData.uiTransformCount);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData->textTransformCount);
+    glDisable(GL_BLEND);
 
     // Clear Data
-    renderData.uiTransformCount = 0;
+    renderData->textTransformCount = 0;
   }
 
   // Final Merge between Game & UI
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glUseProgram(glContext.finalProgram.ID);
   glBindTexture(GL_TEXTURE_2D, glContext.uiTexture.ID);
-  glViewport(0, 0, renderData.globalData.windowSize.x, renderData.globalData.windowSize.y);
+  glViewport(0, 0, renderData->globalData.windowSize.x, renderData->globalData.windowSize.y);
 
   glEnable(GL_BLEND);
 

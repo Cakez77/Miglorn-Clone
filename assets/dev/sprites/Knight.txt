@@ -1,0 +1,12 @@
+frameCount=2
+spriteSizeX=48
+spriteSizeY=48
+pivotOffsetX=1
+pivotOffsetY=-11
+tagName=Idle
+frameCount=6
+spriteSizeX=48
+spriteSizeY=48
+pivotOffsetX=1
+pivotOffsetY=-11
+tagName=Attack

@@ -1,6 +1,8 @@
 #pragma once
 #include "lib.h"
 #include "assets.h"
+#include "input.h"
+#include "sound.h"
 
 // For font
 // To Load TTF Files
@@ -20,12 +22,16 @@ static SDL_Texture* atlas;
 //                           Render Constats
 // #############################################################################
 constexpr u32 MAX_TRANSFORMS = 1000;
-const u32 FONT_ATLAS_SIZE = 512;
+const u32 FONT_ATLAS_SIZE = 1024;
 
 enum FontType
 {
-  FONT_HEADING,
-  FONT_TEXT,
+  FONT_HEADING_1X,
+  FONT_HEADING_2X,
+  FONT_HEADING_3X,
+  FONT_TEXT_1X,
+  FONT_TEXT_2X,
+  FONT_TEXT_3X,
 
   FONT_COUNT
 };
@@ -37,11 +43,8 @@ enum OthoProjectionType
 {
   ORTHO_PROJ_GAME,    // Scaled by 4
   ORTHO_PROJ_LIGHTS,  // Scaled by Game - 1
-  ORTHO_PROJ_UI_1,    // Scaled by 1
-  ORTHO_PROJ_UI_2,    // Scaled by 2
-  ORTHO_PROJ_UI_3,    // Scaled by 3
-  ORTHO_PROJ_UI_4,    // Scaled by 4
-  
+  ORTHO_PROJ_UI,      // Scaled by 4 (same as game)
+  ORTHO_PROJ_TEXT,    // Scaled by 1
   ORTHO_PROJ_COUNT
 };
 
@@ -55,13 +58,13 @@ struct OrthographicCamera2D
 struct Transform
 {
   i32 atlasPosPacked;
-  Vec2 spriteSize;
+  i32 spriteSize;
   Vec2 pos;
   Vec2 size;
-  int matrixIdx;
-  int fontIdx;
-  int padding[2];
+  int pack1; // [renderOptions - 24 Bits][fontIdx - 4 Bits][matrixIdx - 4 Bits]
+  float layer;
 };
+static_assert(sizeof(Transform) % 16 == 0, "Transform is not 16 Byte aligned");
 
 struct Color
 {
@@ -133,8 +136,15 @@ struct RenderData
   OrthographicCamera2D gameCam;
   OrthographicCamera2D lightsCam;
   OrthographicCamera2D uiCam;
-  OrthographicCamera2D uiCams[4];
+  OrthographicCamera2D textCam;
   GlobalData globalData;
+
+  float uiLayer = 0;
+  float uiScale = 1.0f;
+  float gameScale = 1.0f;
+
+  Vec2 viewportOffset;
+  Vec2 viewportSize;
 
   Vec2 uiSpace;
   Font fonts[FONT_COUNT];
@@ -145,18 +155,85 @@ struct RenderData
   int uiTransformCount = 0;
   Transform uiTransforms[MAX_TRANSFORMS];
 
+  int textTransformCount = 0;
+  Transform textTransforms[MAX_TRANSFORMS];
+
   int lightCount = 0;
-  Transform lights[MAX_TRANSFORMS];
+  Transform lights[100];
+};
+
+struct TransformData
+{
+  Vec2 pos;
+  Vec2 size;
+  float layer;
+  int matIdx;
+  int fontIdx;
+  int renderOptions;
+};
+
+struct DrawData
+{
+  float scale = 1;
+  float layer = 0;
+  int renderOptions = 0;
 };
 
 // #############################################################################
 //                           Render Globals
 // #############################################################################
-static RenderData renderData = {};
+static RenderData* renderData;
+
+// #############################################################################
+//                           Render Camera Utility
+// #############################################################################
+Vec2 window_to_ui(Vec2 screenPos)
+{
+  const OrthographicCamera2D& camera = renderData->uiCam;
+
+  float xPos = (screenPos.x - renderData->viewportOffset.x) / 
+               renderData->viewportSize.x * camera.dimensions.x; // [0; dimensions.x]
+
+  float yPos = (screenPos.y - renderData->viewportOffset.y) / 
+               renderData->viewportSize.y * camera.dimensions.y; // [0; dimensions.y]
+
+  return Vec2{xPos, yPos} / renderData->uiCam.zoom;
+}
 
 // #############################################################################
 //                           Render Helper Functions
 // #############################################################################
+i32 pack_int(const IVec2& v)
+{
+  return v.x + (v.y << 16);
+}
+
+i32 pack_int(const Vec2& v)
+{
+  return (int)v.x + ((int)v.y << 16);
+}
+
+Transform get_transform(Vec2 atlasOffset, Vec2 spriteSize, const TransformData& data = {})
+{
+  Transform t = 
+  {
+    .atlasPosPacked = pack_int(atlasOffset),
+    .spriteSize = pack_int(spriteSize),
+    .pos = data.pos,
+    .size = data.size,
+    .pack1 = data.matIdx + (data.fontIdx << 4) + (data.renderOptions << 8),
+    .layer = data.layer,
+  };
+
+  return t;
+}
+
+Transform get_transform(SpriteID spriteID, const TransformData& data = {})
+{
+  const Sprite& sprite = SPRITES[spriteID];
+  return get_transform(sprite.atlasOffset, sprite.size, data);
+}
+
 void precise_wait_seconds(double seconds)
 {
   // if our machine can produce 70 fps maximum, but we limit 120
@@ -169,7 +246,6 @@ void precise_wait_seconds(double seconds)
   while (SDL_GetPerformanceCounter() < target_tick)
   {
     SDL_CPUPauseInstruction();
-    // _mm_pause();
   }
 }
 
@@ -298,7 +374,7 @@ void load_font(FontType fontType, char* filePath, int fontSize, int outlineThick
   FT_Stroker_New(fontLibrary, &stroker);
 
   // This generates a basic font
-  Font& font = renderData.fonts[fontType];
+  Font& font = renderData->fonts[fontType];
   font = {}; 
   font.reload = true; // Signal to the renderer to reload the font
   char* bitMap = BITMAPS[fontType];
@@ -384,69 +460,112 @@ void load_font(FontType fontType, char* filePath, int fontSize, int outlineThick
 // }
 
 // #############################################################################
-//                           Render Functions
+//                           Render Functions Game
 // #############################################################################
-i32 pack_int(const IVec2& v)
+void draw_sprite(const SpriteID spriteID, Vec2 pos, Vec2 size, const DrawData& drawData = {})
 {
-  return v.x + (v.y << 16);
+  // Early return if full
+  if(renderData->transformCount >= ArraySize(renderData->transforms))
+  {
+    return;
+  }
+
+  float layer = pos.y + 100'000'000.0f; // To handle negative y pos
+  const Sprite& sprite = SPRITES[spriteID];
+  pos = pos - (size/2 - sprite.pivotOffset) * drawData.scale;
+
+  Transform t = get_transform(spriteID, {
+    .pos = pos,
+    .size = sprite.size * drawData.scale,
+    .layer = layer,
+    .matIdx = ORTHO_PROJ_GAME,
+    .renderOptions = drawData.renderOptions});
+  renderData->transforms[renderData->transformCount++] = t;
 }
 
-i32 pack_int(const Vec2& v)
-{
-  return (int)v.x + ((int)v.y << 16);
-}
-
-void draw_sprite(const SpriteID spriteID, Vec2 pos, float scale = 1)
+void draw_sprite(const SpriteID spriteID, Vec2 pos, const DrawData& drawData = {})
 {
   const Sprite& sprite = SPRITES[spriteID];
-  Transform t = 
-  {
-    .atlasPosPacked = pack_int(sprite.atlasOffset),
-    .spriteSize = vec_2(sprite.size),
-    .pos = pos - vec_2(sprite.size/2 - sprite.pivotOffset) * scale,
-    .size = vec_2(sprite.size) * scale,
-    .matrixIdx = ORTHO_PROJ_GAME
-  };
-  renderData.transforms[renderData.transformCount++] = t;
+  draw_sprite(spriteID, pos, sprite.size, drawData);
 }
 
 void draw_light(Vec2 pos, float scale = 1)
 {
-  const Sprite& sprite = SPRITES[SPRITE_LIGHT];
-  Transform t = 
+  // Early return in case the array is full
+  if(renderData->lightCount >= ArraySize(renderData->lights))
   {
-    .atlasPosPacked = pack_int(sprite.atlasOffset),
-    .spriteSize = vec_2(sprite.size),
-    .pos = pos - vec_2(sprite.size/2 - sprite.pivotOffset) * scale,
-    .size = vec_2(sprite.size) * scale,
-    .matrixIdx = ORTHO_PROJ_LIGHTS
-  };
-  renderData.lights[renderData.lightCount++] = t;
+    return;
+  }
+
+  const Sprite& sprite = SPRITES[SPRITE_LIGHT];
+  pos = pos - (sprite.size/2 - sprite.pivotOffset) * scale;
+  Transform t = get_transform(SPRITE_LIGHT, {
+    .pos = pos,
+    .size = sprite.size,
+    .matIdx = ORTHO_PROJ_LIGHTS});
+  renderData->lights[renderData->lightCount++] = t;
 }
 
-enum BaseFontSize
+// #############################################################################
+//                           Render Functions UI
+// #############################################################################
+struct UIDrawData
 {
-  FONT_SIZE_1 = ORTHO_PROJ_UI_1,
-  FONT_SIZE_2 = ORTHO_PROJ_UI_2,
-  FONT_SIZE_3 = ORTHO_PROJ_UI_3,
-  FONT_SIZE_4 = ORTHO_PROJ_UI_4,
+  SoundID playSound = SOUND_NONE;
+  SoundID hoverSound = SOUND_NONE;
+  Vec2 anchor;
+  DrawData drawData;
 };
 
+void draw_ui_sprite(const SpriteID spriteID, Vec2 pos, Vec2 size, const UIDrawData& uiData = {})
+{
+  // Early return in case the array is full
+  if(renderData->uiTransformCount >= ArraySize(renderData->uiTransforms))
+  {
+    return;
+  }
+
+  const Sprite& sprite = SPRITES[spriteID];
+  pos = floor_vec2(renderData->uiSpace/renderData->uiCam.zoom * uiData.anchor) + 
+    (pos - (size/2 - sprite.pivotOffset) * uiData.drawData.scale);
+
+  Transform t = get_transform(spriteID, {
+    .pos = pos,
+    .size = size * uiData.drawData.scale,
+    .layer = renderData->uiLayer,
+    .matIdx = ORTHO_PROJ_UI,
+    .renderOptions = uiData.drawData.renderOptions});
+  renderData->uiTransforms[renderData->uiTransformCount++] = t;
+}
+
+void draw_ui_sprite(const SpriteID spriteID, Vec2 pos, const UIDrawData& uiData = {})
+{
+  const Sprite& sprite = SPRITES[spriteID];
+  draw_ui_sprite(spriteID, pos, sprite.size, uiData);
+}
+
+// #############################################################################
+//                           Render Functions Text
+// #############################################################################
 struct TextData
 {
-  FontType fontType = FONT_TEXT;
-  BaseFontSize baseFontSize = FONT_SIZE_3;
+  FontType fontType = FONT_TEXT_2X;
+  Vec2 anchor;
   float fontSize = 1.0f;
   float rotation = 0;
+  int renderOptions;
   // todo: function over time like sinf
   // todo: individual scaling
 };
 
 void draw_ui_text(char* text, Vec2 pos, const TextData& textData = {})
 {
-  const Font& font = renderData.fonts[textData.fontType];
+  pos = floor_vec2(renderData->uiSpace * textData.anchor) + pos * renderData->uiCam.zoom;
+  const Font& font = renderData->fonts[textData.fontType];
   const float spaceWidth = get_glyph_if_exists(font, ' ').advance.x * textData.fontSize;
+  const float fontHeight = font.height * textData.fontSize;
   const Words words = split_words(text);
+  pos.y -= fontHeight/2;
   Vec2 origin = pos;
 
   for(int wordIdx = 0; wordIdx < words.count; wordIdx++)
@@ -487,18 +606,23 @@ void draw_ui_text(char* text, Vec2 pos, const TextData& textData = {})
         continue;
       }
 
+      // Return if array got full while drawing text
+      if(renderData->textTransformCount >= ArraySize(renderData->textTransforms))
+      {
+        return;
+      }
+
       // Draw the Glyph
       const Glyph& glyph = get_glyph_if_exists(font, codepoint);
-      Transform t = 
-      {
-        .atlasPosPacked = pack_int(glyph.textureCoords),
-        .spriteSize = glyph.size,
+      Transform t = get_transform(glyph.textureCoords, glyph.size, {
         .pos = pos - glyph.offset * textData.fontSize,
         .size = glyph.size * textData.fontSize,
-        .matrixIdx = textData.baseFontSize,
-        .fontIdx = (int)textData.fontType
-      };
-      renderData.uiTransforms[renderData.uiTransformCount++] = t;
+        .layer = renderData->uiLayer,
+        .matIdx = ORTHO_PROJ_TEXT,
+        .fontIdx = (int)textData.fontType,
+        .renderOptions = textData.renderOptions});
+      renderData->textTransforms[renderData->textTransformCount++] = t;
+
       pos.x += glyph.advance.x * textData.fontSize;
     }
     

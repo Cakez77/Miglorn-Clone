@@ -12,15 +12,17 @@ enum SpriteID
     SPRITE_LIGHT,
     SPRITE_SDV,
     SPRITE_TORCH,
+    SPRITE_BUTTON,
+    SPRITE_UI_BACKGROUND,
 
     SPRITE_COUNT
 };
 
 struct Sprite
 {
-    IVec2 atlasOffset;
-    IVec2 size;
-    IVec2 pivotOffset;
+    Vec2 atlasOffset;
+    Vec2 size;
+    Vec2 pivotOffset;
     int frameCount;
 };
 
@@ -35,4 +37,6 @@ const Sprite SPRITES[SPRITE_COUNT] =
   [SPRITE_LIGHT] = {.atlasOffset = {0, 112}, .size = {32, 32}},
   [SPRITE_SDV] = {.atlasOffset = {0, 176}, .size = {480, 272}},
   [SPRITE_TORCH] = {.atlasOffset = {128, 112}, .size = {16, 32}},
+  [SPRITE_BUTTON] = {.atlasOffset = {144, 96}, .size = {64, 26}},
+  [SPRITE_UI_BACKGROUND] = {.atlasOffset = {416, 0}, .size = {96, 80}},
 };
