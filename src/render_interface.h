@@ -22,6 +22,7 @@ static SDL_Texture* atlas;
 //                           Render Constats
 // #############################################################################
 constexpr u32 MAX_TRANSFORMS = 1000;
+constexpr u32 MAX_VERTICES = 200;
 const u32 FONT_ATLAS_SIZE = 1024;
 
 enum FontType
@@ -53,6 +54,11 @@ struct OrthographicCamera2D
   float zoom = 1.0f;
   Vec2 dimensions;
   Vec2 position;
+};
+
+struct Vertex
+{
+  Vec2 pos;
 };
 
 struct Transform
@@ -98,13 +104,25 @@ struct Material
   }
 };
 
+struct LightObstacle
+{
+  float startDeg;
+  float endDeg;
+  float dist;
+  float padding;
+};
+
 struct GlobalData
 {
   float gameTime;
-  float padding;
+  int lightObstacleCount = 0;
   IVec2 windowSize;
+  Vec2 camPos;
+  Vec2 padding;
   Mat4 orthProjGame[ORTHO_PROJ_COUNT];
+  LightObstacle obstacles[10];
 };
+static_assert(sizeof(GlobalData) % 16 == 0, "GlobalData is not 16 Byte aligned");
 
 struct Glyph
 {
@@ -148,6 +166,9 @@ struct RenderData
 
   Vec2 uiSpace;
   Font fonts[FONT_COUNT];
+
+  int vertexCount = 0;
+  Vertex vertices[MAX_VERTICES];
 
   int transformCount = 0;
   Transform transforms[MAX_TRANSFORMS];
@@ -476,7 +497,7 @@ void draw_sprite(const SpriteID spriteID, Vec2 pos, Vec2 size, const DrawData& d
 
   Transform t = get_transform(spriteID, {
     .pos = pos,
-    .size = sprite.size * drawData.scale,
+    .size = size * drawData.scale,
     .layer = layer,
     .matIdx = ORTHO_PROJ_GAME,
     .renderOptions = drawData.renderOptions});
@@ -488,6 +509,11 @@ void draw_sprite(const SpriteID spriteID, Vec2 pos, const DrawData& drawData = {
   const Sprite& sprite = SPRITES[spriteID];
   draw_sprite(spriteID, pos, sprite.size, drawData);
 }
+
+enum RenderOptions
+{
+  RENDER_OPTION_LIGHT_RAYMARCH = BIT(0),
+};
 
 void draw_light(Vec2 pos, float scale = 1)
 {
@@ -501,8 +527,9 @@ void draw_light(Vec2 pos, float scale = 1)
   pos = pos - (sprite.size/2 - sprite.pivotOffset) * scale;
   Transform t = get_transform(SPRITE_LIGHT, {
     .pos = pos,
-    .size = sprite.size,
-    .matIdx = ORTHO_PROJ_LIGHTS});
+    .size = sprite.size * scale,
+    .matIdx = ORTHO_PROJ_GAME,
+    .renderOptions = RENDER_OPTION_LIGHT_RAYMARCH});
   renderData->lights[renderData->lightCount++] = t;
 }
 

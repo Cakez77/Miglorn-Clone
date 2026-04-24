@@ -14,13 +14,25 @@ flat out vec2 spriteSize;
 flat out int fontIdx;
 out vec2 textureCoords;
 out vec2 uv;
+flat out int renderOptions;
+
+struct LightObstacle
+{
+  float startDeg;
+  float endDeg;
+  float dist;
+  float padding;
+};
 
 struct GlobalData
 {
   float gameTime;
-  float padding;
+  int lightObstacleCount;
   ivec2 windowSize;
+  vec2 camPos;
+  vec2 padding;
   mat4 orthProjGame[4];
+  LightObstacle obstacles[10];
 };
 
 // Buffers
@@ -53,7 +65,7 @@ void main()
 
   int matrixIdx = int(pack1 & 0xF); // first 4 Bits
   int fontIdxIn = int((pack1 >> 4) & 0xF); // next 4 Bits
-  int renderOptions = int(pack1 >> 8); // last 24 Bits
+  renderOptions = int(pack1 >> 8); // last 24 Bits
 
   fontIdx = fontIdxIn;
   float layer = layerIn / 200000000.0;

@@ -933,6 +933,16 @@ Vec2 sin_between_two_points(Vec2 a, Vec2 b, float t, float speedup = 1.0f)
   return pos;
 }
 
+float get_angle(Vec2 direction)
+{
+  return (atan2f(direction.y, direction.x) + PI / 2.0f);
+}
+
+float get_angle_correct(Vec2 direction)
+{
+  return atan2f(direction.y, direction.x);
+}
+
 float get_angle_degress(float deg)
 {
   int i = (int)(deg / 360.0f);

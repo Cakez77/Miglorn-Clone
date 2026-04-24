@@ -52,6 +52,10 @@ struct OpenGLContext
   GLuint VAO = 0;
   GLuint VBO = 0;
 
+  GLuint VAO2 = 0;
+  GLuint VBO2 = 0;
+  Program program2;
+
   GLuint globalUBO;
 
   Texture lightMap;
@@ -415,6 +419,7 @@ bool gl_init(SDL_Window* window)
 
   // Create program
   glContext.mainProgram = gl_create_program("assets/shaders/quad.vert", "assets/shaders/quad.frag");
+  glContext.program2 = gl_create_program("assets/shaders/raymarch.vert", "assets/shaders/raymarch.frag");
   glContext.lightProgram = gl_create_program("assets/shaders/fullscreen.vert", "assets/shaders/lightmap.frag");
   glContext.fontProgram = gl_create_program("assets/shaders/quad.vert", "assets/shaders/font.frag");
   glContext.finalProgram = gl_create_program("assets/shaders/fullscreen.vert", "assets/shaders/final.frag");
@@ -436,14 +441,14 @@ bool gl_init(SDL_Window* window)
     glUniform1i(uniformLocation, 3);
   }
 
-  // Generate Vertex Buffer Object
-  // VBO -> Buffer (Data)
-  glGenBuffers(1, &glContext.VBO);
-  glBindBuffer(GL_ARRAY_BUFFER, glContext.VBO);
-
   // Do layout stuff
   // VAO -> Layout
   {
+    // Generate Vertex Buffer Object
+    // VBO -> Buffer (Data)
+    glGenBuffers(1, &glContext.VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, glContext.VBO);
+
     glGenVertexArrays(1, &glContext.VAO);
     glBindVertexArray(glContext.VAO);
     int attribIdx = 0;
@@ -502,10 +507,39 @@ bool gl_init(SDL_Window* window)
     // offset += sizeof(int);
 
     glBindVertexArray(0); // Unbind
+
+    glBufferData(GL_ARRAY_BUFFER, sizeof(Transform) * MAX_TRANSFORMS, NULL, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0); // Unbind
   }
 
-  glBufferData(GL_ARRAY_BUFFER, sizeof(Transform) * MAX_TRANSFORMS, NULL, GL_DYNAMIC_DRAW);
-  glBindBuffer(GL_ARRAY_BUFFER, 0); // Unbind
+  // Test
+  {
+    // Generate Vertex Buffer Object
+    // VBO -> Buffer (Data)
+    glGenBuffers(1, &glContext.VBO2);
+    glBindBuffer(GL_ARRAY_BUFFER, glContext.VBO2);
+
+    // Do layout stuff
+    // VAO -> Layout
+    {
+      glGenVertexArrays(1, &glContext.VAO2);
+      glBindVertexArray(glContext.VAO2);
+      int attribIdx = 0;
+      u8* offset = nullptr;
+
+      // Position
+      glVertexAttribPointer(attribIdx, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), offset);
+      glEnableVertexAttribArray(attribIdx);
+      // glVertexAttribDivisor(attribIdx, 1); // the 1 means this data is per instance rather than per vertex
+      attribIdx += 1;
+      offset += sizeof(float) * 2;
+
+      glBindVertexArray(0); // Unbind
+    }
+
+    glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * MAX_VERTICES, NULL, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0); // Unbind
+  }
 
   // Global Data
   {
@@ -597,7 +631,7 @@ void gl_render(SDL_Window* window)
     OrthographicCamera2D& lightsCam = renderData->lightsCam;
     lightsCam.dimensions = renderData->gameCam.dimensions;
     lightsCam.position = renderData->gameCam.position;
-    lightsCam.zoom = 8;
+    lightsCam.zoom = renderData->gameCam.zoom;
     const Vec2 dimensions =  lightsCam.dimensions / lightsCam.zoom;
     const Vec2 pos = lightsCam.position;
 
@@ -607,6 +641,8 @@ void gl_render(SDL_Window* window)
                               -pos.y-dimensions.y / 2.0f,
                               -pos.y+dimensions.y / 2.0f);
   }
+
+  renderData->globalData.camPos = renderData->gameCam.position;
 
   // Resize UI Texture
   if(glContext.uiTexture.width != renderData->uiSpace.x || 
@@ -675,6 +711,30 @@ void gl_render(SDL_Window* window)
 
     // Clear Data
     renderData->transformCount = 0;
+  }
+
+  // Test Ray Marching
+  {
+    glUseProgram(glContext.program2.ID);
+    glBindTexture(GL_TEXTURE_2D, glContext.textureAtlas.ID);
+
+    glBindVertexArray(glContext.VAO2);
+    glBindBuffer(GL_ARRAY_BUFFER, glContext.VBO2);
+
+    // Upload Vertices
+    const u64 size = sizeof(Vertex) * renderData->vertexCount;
+    const u32 offset = 0;
+    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData->vertices[0]);
+
+    // Draw 15 Vertices
+    glDrawArrays(GL_TRIANGLES, 0, renderData->vertexCount);
+    renderData->vertexCount = 0;
+
+
+    glUseProgram(glContext.mainProgram.ID);
+    glBindTexture(GL_TEXTURE_2D, glContext.textureAtlas.ID);
+    glBindVertexArray(glContext.VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, glContext.VBO);
   }
 
   // Apply Lighting

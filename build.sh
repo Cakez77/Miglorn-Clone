@@ -1,7 +1,7 @@
 #!bin/bash
 
 # Turn off to build to web
-BUILD_WEB=false
+# BUILD_WEB=false
 
 # PC Data
 defines=""
