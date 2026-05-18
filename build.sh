@@ -1,17 +1,17 @@
 #!bin/bash
 
 # Turn off to build to web
-# BUILD_WEB=false
+BUILD_WEB=false
 
 # PC Data
-defines=""
+defines="-DENGINE"
 includes="-Ithird_party/include -Iassets/shaders"
 outputFile=main.exe
 libs="-Lthird_party/lib -lfreetype -lsdl3 -lopengl32 -luser32 -lshell32 -lgdi32 -lmsvcrt -lwinmm -nostdlib"
 warnings="-Wno-writable-strings -Wno-c99-designator -Wno-nullability-completeness"
 
 # Precompiled Lib header
-# time clang++ $defines $optimize -c -o "src/lib.h.pch" "src/lib.h" -std=c++20 -Ithird_party $includes $warnings
+time clang++ $defines $optimize -c -o "src/lib.h.pch" "src/lib.h" -std=c++20 -Ithird_party $includes $warnings
 
 # WEB
 if $BUILD_WEB ; then
@@ -19,9 +19,9 @@ if $BUILD_WEB ; then
   # They run fine with -O3, -sASSERTIONS=0, -sSAFE_HEAP=0, no sanitizer
   inclWeb="-I. -I ./third_party/include"
   shellHTML="--shell-file ./third_party/include/shell.html"
-  webOptions="-s TOTAL_STACK=64MB -s INITIAL_MEMORY=128MB -s ASSERTIONS -s USE_SDL=3 -s FULL_ES3=1 -DWEB_BUILD"
+  webOptions="-s TOTAL_STACK=64MB -s INITIAL_MEMORY=256MB -s ASSERTIONS -s USE_SDL=3 -s FULL_ES3=1 -DWEB_BUILD -DENGINE"
   libsWeb="third_party/lib/libSDL3.a third_party/lib/libSDL3_image.a third_party/lib/libSDL3_ttf.a -lm  third_party/lib/libpng16.a third_party/lib/libzlibstatic.a"
-  preload="--preload-file assets"
+  preload="--preload-file assets --preload-file src"
   warnings="-Wno-c99-designator -Wno-writable-strings -Wno-nullability-completeness -Wno-writable-strings -Wno-missing-braces"
   C:/emsdk/upstream/emscripten/em++.bat -o web/index.html src/main.cpp -fchar8_t -Os -Wall $warnings $preload $webOptions $inclWeb $shellHTML $libsWeb 
 else

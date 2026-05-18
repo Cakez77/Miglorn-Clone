@@ -1,0 +1,6 @@
+frameCount=1
+spriteSizeX=480
+spriteSizeY=272
+pivotOffsetX=0
+pivotOffsetY=0
+tagName=

@@ -89,7 +89,7 @@ EXPORT_FN void update_game(GameState* gameStateIn, RenderData* renderDataIn, con
                               -pos.y+dimensions.y / 2.0f);
   }
 
-  draw_sprite(SPRITE_PLAYER, gameState->playerPos);
+  draw_sprite(SPRITE_KNIGHT_IDLE, gameState->playerPos);
   const Vec2 TREES[] = 
   {
     {10, 20},
@@ -110,6 +110,9 @@ EXPORT_FN void update_game(GameState* gameStateIn, RenderData* renderDataIn, con
   Array<TestStuff, 100> sortedWalls = {};
   const float lightRadius = 256;
 
+  // draw_sprite(SPRITE_WOODEN_STAKES, {-40, -12});
+  draw_sprite2(SPRITE_WOODEN_STAKES, {-40, -12});
+
   renderData->globalData.lightObstacleCount = 0;
   for(int i = 0; i < ArraySize(TREES); i++)
   {
@@ -120,16 +123,21 @@ EXPORT_FN void update_game(GameState* gameStateIn, RenderData* renderDataIn, con
     }
 
     const Vec2 pos = TREES[i];
-    draw_sprite(SPRITE_PINE_TREE, pos);
-
     Vec2 direction = pos - playerPos;
+    const float maxDist = 20;
+    float distToTreeAbove = pos.y > playerPos.y? direction.y : 0.0f;
+    const float tDist = ease_out_linear(distToTreeAbove/maxDist);
+    const Color ambient = {get_hex(180/4 * tDist, 180/4 * tDist, 0, 255)};
+
+    draw_sprite2(SPRITE_PINE_TREE, pos, {.mat = {.color = COLOR_WHITE, .add = ambient}});
+
     // direction.y *= 1.0f / HEIGHT_FACTOR_ELLIPSE;
 
     float distance = length(direction);
     Vec2 dirNorm = normalize(direction);
     const float distanceSquared = length_squared(direction);
 
-    const float colliderRadius = 6;
+    const float colliderRadius = 10;
     const float radiusSquared = lightRadius * lightRadius;
     if(distanceSquared < radiusSquared)
     {
@@ -150,7 +158,6 @@ EXPORT_FN void update_game(GameState* gameStateIn, RenderData* renderDataIn, con
       else
       {
         sortedWalls.add({.v1 = v2, .v2 = v1, .angle1 = deg2, .angle2 = deg1});
-
       }
 
       LightObstacle o = {};
@@ -162,7 +169,7 @@ EXPORT_FN void update_game(GameState* gameStateIn, RenderData* renderDataIn, con
   }
 
   // 32x32 * 8 -> l
-  draw_light(gameState->playerPos, 8);
+  draw_light(gameState->playerPos, COLOR_WHITE, 8);
 
   const float left = playerPos.x - lightRadius;
   const float right = playerPos.x + lightRadius;

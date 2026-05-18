@@ -1,4 +1,3 @@
-#version 300 es
 
 // Input - nothing
 

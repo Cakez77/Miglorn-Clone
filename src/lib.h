@@ -390,6 +390,16 @@ float max(float a, float b)
   return (a > b)? a : b;
 }
 
+long long max(long long a, long long b)
+{
+  if(a > b)
+  {
+    return a;
+  }
+
+  return b;
+}
+
 float clamp(float x, float min, float max)
 {
   if(x < min)
@@ -976,6 +986,114 @@ float get_angle_radians(float rad)
   }
   
   return rad;
+}
+
+// #############################################################################
+//                                Vector 3
+// #############################################################################
+struct Vec3
+{
+  union
+  {
+    float values[3];
+    struct
+    {
+      float x;
+      float y;
+      float z;
+    };
+    struct
+    {
+      float xy[2];
+    };
+    
+    struct
+    {
+      float xyz[3];
+    };
+  };
+  
+  float &operator[](int index)
+  {
+    return values[index];
+  }
+  
+  Vec3 operator+(Vec3 other)
+  {
+    return Vec3{
+      x + other.x,
+      y + other.y,
+      z + other.z};
+  }
+  
+  Vec3 operator*(float value)
+  {
+    return Vec3{
+      x * value,
+      y * value,
+      z * value};
+  }
+  
+  Vec3 operator-(Vec3 other)
+  {
+    return Vec3{
+      x - other.x,
+      y - other.y,
+      z - other.z};
+  }
+};
+
+struct IVec3
+{
+  union
+  {
+    int values[3];
+    struct
+    {
+      int x;
+      int y;
+      int z;
+    };
+    struct
+    {
+      int xy[2];
+    };
+    
+    struct
+    {
+      int xyz[3];
+    };
+  };
+};
+
+float length(Vec3 v)
+{
+  return (float)sqrt((v.x * v.x) + (v.y * v.y) + (v.z * v.z));
+}
+
+Vec3 normalize(Vec3 v)
+{
+  float vecLenght = length(v);
+  if (vecLenght <= 0)
+    return Vec3{0.0f, 0.0f, 0.0f};
+  
+  return Vec3{
+    v.x / vecLenght,
+    v.y / vecLenght,
+    v.z / vecLenght};
+}
+
+Vec3 cross(Vec3 a, Vec3 b)
+{
+  return Vec3{
+    a.y * b.z - a.z * b.y,
+    a.z * b.x - a.x * b.z,
+    a.x * b.y - a.y * b.x};
+}
+
+float dot(Vec3 a, Vec3 b)
+{
+  return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
 // #############################################################################

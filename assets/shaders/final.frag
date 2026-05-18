@@ -1,5 +1,3 @@
-#version 300 es
-precision highp float;
 
 // Input
 in vec2 uv;

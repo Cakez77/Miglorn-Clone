@@ -1,5 +1,3 @@
-#version 300 es
-precision highp float;
 
 // Input
 in vec2 textureCoords;
@@ -15,9 +13,9 @@ void main()
   // vec4 textureColor = texture(textureAtlas, uv);
   vec4 textureColor = texelFetch(textureAtlas, ivec2(textureCoords), 0);
   vec4 color = vec4(1.0);
-  // if(textureColor.a == 0.0)
-  // {
-  //   discard;
-  // }
+  if(textureColor.a == 0.0)
+  {
+    discard;
+  }
   fragColor = color; 
 }

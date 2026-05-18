@@ -6,12 +6,15 @@
 // This shit adds +1s compilation time
 #define GLAD_GL_IMPLEMENTATION
 #include "glad/gl.h"
+// #define GLAD_GLES2_IMPLEMENTATION
+// #define GLAD_EGL_IMPLEMENTATION
+// #include "glad/gles2.h"
 #endif
 
 // #############################################################################
 //                           OpenGL constants
 // #############################################################################
-const char* TEXTURE_PATH = "assets/textures/atlas.png";
+const char* TEXTURE_PATH = "assets/textures/textureAtlas.png";
 constexpr Vec2 LIGHT_MAP_SIZE = {142, 72};
 
 // #############################################################################
@@ -115,31 +118,30 @@ Texture gl_create_texture(GLint staticFormat, GLenum binding,
   return texture;
 }
 
-GLuint gl_create_shader(int shaderType, char* shaderPath)
+GLuint gl_create_shader(int shaderType, char* shaderPath, BumpAllocator* transientStorage)
 {
   SDL_Log("Creating Shader: %s, Type: %d", shaderPath, shaderType);
 
+  int headerSize = 0;
+  char* shaderHeader = read_file("src/shader_header.h", &headerSize, transientStorage);
+  if(!shaderHeader)
+  {
+    ASSERT_MSG(false, "Failed to load shader header: src/shaders_header.h");
+    return 0;
+  }
 
-  // char* shaderHeader = read_file("src/shader_header.h", &fileSize, transientStorage);
-  // if(!shaderHeader)
-  // {
-  //   SM_ASSERT(false, "Failed to load shader header: src/shaders_header.h");
-  //   return 0;
-  // }
-
-  // char* shader = read_file(shaderPath, &fileSize, transientStorage);
-  size_t fileSize = 0;
-  char* shader = (char*)SDL_LoadFile(shaderPath, &fileSize);
+  int fileSize = 0;
+  char* shader = read_file(shaderPath, &fileSize, transientStorage);
   if(!shader)
   {
-    SDL_Log("Failed to load shader: %s",shaderPath);
+    ASSERT_MSG(false, "Failed to load shader: %s",shaderPath);
     return 0;
   }
 
   char* shaderSources[] =
   {
-    // "#version 430 core\n",
-    // shaderHeader,
+    "#version 300 es \nprecision highp float;\nprecision highp int;\n",
+    shaderHeader,
     // "\n#line 1\n",
     shader
   };
@@ -156,7 +158,7 @@ GLuint gl_create_shader(int shaderType, char* shaderPath)
     {
       char shaderLog[2048] = {};
       glGetShaderInfoLog(shaderID, 2048, 0, shaderLog);
-      SDL_Log("Failed to compile %s Shader, Error: %s", shaderPath, shaderLog);
+      ASSERT_MSG(false, "Failed to compile %s Shader, Error: %s", shaderPath, shaderLog);
       return 0;
     }
   }
@@ -165,7 +167,7 @@ GLuint gl_create_shader(int shaderType, char* shaderPath)
 }
 
 // Program gl_create_program(char *vertShaderPath, char *fragShaderPath, BumpAllocator *transientStorage)
-Program gl_create_program(char *vertShaderPath, char *fragShaderPath)
+Program gl_create_program(char *vertShaderPath, char *fragShaderPath, BumpAllocator* transientStorage)
 {
   // SM_TRACE("Creating Program. Vert: %s", vertShaderPath);
   // SM_TRACE("Creating Program. Frag: %s", fragShaderPath);
@@ -173,17 +175,17 @@ Program gl_create_program(char *vertShaderPath, char *fragShaderPath)
   Program program = {
     .vertShader = vertShaderPath,
     .fragShader = fragShaderPath,
-    .realoadTS = get_timestamp(vertShaderPath)
+    .realoadTS = max(get_timestamp(vertShaderPath), get_timestamp(fragShaderPath))
   };
 
   // Program ID
   {
-    GLuint vertShaderID = gl_create_shader(GL_VERTEX_SHADER, vertShaderPath);
-    GLuint fragShaderID = gl_create_shader(GL_FRAGMENT_SHADER, fragShaderPath); 
+    GLuint vertShaderID = gl_create_shader(GL_VERTEX_SHADER, vertShaderPath, transientStorage);
+    GLuint fragShaderID = gl_create_shader(GL_FRAGMENT_SHADER, fragShaderPath, transientStorage); 
 
     if(!vertShaderID || !fragShaderID)
     {
-      SDL_Log("Failed to create Shaders");
+      ASSERT_MSG(false, "Failed to create Shaders");
       return {};
     }
 
@@ -236,6 +238,44 @@ Program gl_create_program(char *vertShaderPath, char *fragShaderPath)
   }
 
   return program;
+}
+
+void set_uniform_locations()
+{
+  // Set sampler in shader to texture unit 1 (the unit that texture was created with)
+  // FOR THIS FKING PROGRAM ONLY BTW!!!!!!!!!!!!!!!!!!
+  glUseProgram(glContext.lightProgram.ID);
+  GLint uniformLocation = glGetUniformLocation(glContext.lightProgram.ID, "lightMap");
+  glUniform1i(uniformLocation, 1);
+
+  glUseProgram(glContext.fontProgram.ID);
+  uniformLocation = glGetUniformLocation(glContext.fontProgram.ID, "fontArray");
+  glUniform1i(uniformLocation, 2);
+
+  glUseProgram(glContext.finalProgram.ID);
+  uniformLocation = glGetUniformLocation(glContext.finalProgram.ID, "uiTexture");
+  glUniform1i(uniformLocation, 3);
+}
+
+void gl_reload_program(Program& program, BumpAllocator* transientStorage)
+{
+  long long vertTS = get_timestamp(program.vertShader);
+  long long fragTS = get_timestamp(program.fragShader);
+
+  if(vertTS > program.realoadTS || fragTS > program.realoadTS)
+  {
+    SDL_Log("Reloading Program: %s, %s", program.vertShader, program.fragShader);
+    Program newProgram = gl_create_program(program.vertShader, program.fragShader, transientStorage);
+    if(newProgram.ID)
+    {
+      glDeleteProgram(program.ID);
+      program = newProgram;
+      glUseProgram(program.ID);
+      program.realoadTS = max(vertTS, fragTS);
+
+      set_uniform_locations();
+    }
+  }
 }
 
 // Create UI framebuffer
@@ -315,9 +355,10 @@ void glad_callback(void *ret, const char *name, GLADapiproc apiproc, int len_arg
 // #############################################################################
 //                                Init
 // #############################################################################
-bool gl_init(SDL_Window* window)
+bool gl_init(SDL_Window* window, BumpAllocator* transientStorage)
 {
 	#ifndef WEB_BUILD
+  // gladLoadGLES2((GLADloadfunc)SDL_EGL_GetProcAddress);
 	gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
 	#endif
 
@@ -330,6 +371,7 @@ bool gl_init(SDL_Window* window)
   {
     SDL_Log("Setting up OpenGL Debugger...");
     gladSetGLPostCallback(&glad_callback);
+    // gladSetGLES2PostCallback(&glad_callback);
   }
   #endif
 
@@ -362,6 +404,7 @@ bool gl_init(SDL_Window* window)
                         GL_RGBA,
                         GL_UNSIGNED_BYTE,
                         GL_CLAMP_TO_EDGE,
+                        // GL_NEAREST);
                         GL_LINEAR);
 
     glContext.uiTexture =
@@ -418,28 +461,14 @@ bool gl_init(SDL_Window* window)
   }
 
   // Create program
-  glContext.mainProgram = gl_create_program("assets/shaders/quad.vert", "assets/shaders/quad.frag");
-  glContext.program2 = gl_create_program("assets/shaders/raymarch.vert", "assets/shaders/raymarch.frag");
-  glContext.lightProgram = gl_create_program("assets/shaders/fullscreen.vert", "assets/shaders/lightmap.frag");
-  glContext.fontProgram = gl_create_program("assets/shaders/quad.vert", "assets/shaders/font.frag");
-  glContext.finalProgram = gl_create_program("assets/shaders/fullscreen.vert", "assets/shaders/final.frag");
+  glContext.mainProgram = gl_create_program("assets/shaders/quad.vert", "assets/shaders/quad.frag", transientStorage);
+  glContext.program2 = gl_create_program("assets/shaders/raymarch.vert", "assets/shaders/raymarch.frag", transientStorage);
+  glContext.lightProgram = gl_create_program("assets/shaders/fullscreen.vert", "assets/shaders/lightmap.frag", transientStorage);
+  glContext.fontProgram = gl_create_program("assets/shaders/quad.vert", "assets/shaders/font.frag", transientStorage);
+  glContext.finalProgram = gl_create_program("assets/shaders/fullscreen.vert", "assets/shaders/final.frag", transientStorage);
 
   // Set Uniform locations
-  {
-    // Set sampler in shader to texture unit 1 (the unit that texture was created with)
-    // FOR THIS FKING PROGRAM ONLY BTW!!!!!!!!!!!!!!!!!!
-    glUseProgram(glContext.lightProgram.ID);
-    GLint uniformLocation = glGetUniformLocation(glContext.lightProgram.ID, "lightMap");
-    glUniform1i(uniformLocation, 1);
-
-    glUseProgram(glContext.fontProgram.ID);
-    uniformLocation = glGetUniformLocation(glContext.fontProgram.ID, "fontArray");
-    glUniform1i(uniformLocation, 2);
-
-    glUseProgram(glContext.finalProgram.ID);
-    uniformLocation = glGetUniformLocation(glContext.finalProgram.ID, "uiTexture");
-    glUniform1i(uniformLocation, 3);
-  }
+  set_uniform_locations();
 
   // Do layout stuff
   // VAO -> Layout
@@ -500,6 +529,14 @@ bool gl_init(SDL_Window* window)
     attribIdx += 1;
     offset += sizeof(float) * 1;
 
+    // Material, color and addColor
+    glVertexAttribIPointer(attribIdx, 2, GL_UNSIGNED_INT, sizeof(Transform), offset);
+    glEnableVertexAttribArray(attribIdx);
+    glVertexAttribDivisor(attribIdx, 1); // the 1 means this data is per instance rather than per vertex
+    attribIdx += 1;
+    offset += sizeof(unsigned int) * 2;
+
+
     // glVertexAttribIPointer(attribIdx, 1, GL_INT, sizeof(Transform), offset);
     // glEnableVertexAttribArray(attribIdx);
     // glVertexAttribDivisor(attribIdx, 1); // the 1 means this data is per instance rather than per vertex
@@ -545,7 +582,8 @@ bool gl_init(SDL_Window* window)
   {
     glGenBuffers(1, &glContext.globalUBO);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, glContext.globalUBO);
-    glBufferData(GL_UNIFORM_BUFFER, sizeof(GlobalData), &renderData->globalData, GL_DYNAMIC_DRAW);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(GlobalData), 
+                 &renderData->globalData, GL_DYNAMIC_DRAW);
   }
 
   // sRGB output (even if input texture is non-sRGB -> don't rely on texture used)
@@ -586,12 +624,12 @@ bool gl_init(SDL_Window* window)
 
 
   return true;
-};
+}
 
 // #############################################################################
 //                                Render
 // #############################################################################
-void gl_render(SDL_Window* window)
+void gl_render(SDL_Window* window, BumpAllocator* transientStorage)
 {
   // Reload Fonts if needed
   for(int i = 0; i < FONT_COUNT; i++)
@@ -624,6 +662,35 @@ void gl_render(SDL_Window* window)
 
       font.reload = false;
     }
+  }
+
+  // Hot texture reloading
+  {
+    long long textureTimestamp = get_timestamp(TEXTURE_PATH);
+    if(textureTimestamp > glContext.textureAtlas.fileTS)
+    {
+      glBindTexture(GL_TEXTURE_2D, glContext.textureAtlas.ID);
+      int width, height, nChannels;
+      char* data = (char*)stbi_load(TEXTURE_PATH, &width, &height, &nChannels, 4);
+      if(data)
+      {
+        int textureSizeInBytes = 4 * width * height;
+        glContext.textureAtlas.fileTS = textureTimestamp;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, 
+                     GL_RGBA, GL_UNSIGNED_BYTE, data);
+
+        stbi_image_free(data);
+      }
+    }
+  }
+
+  // Hot shader reloading
+  {
+    gl_reload_program(glContext.mainProgram, transientStorage);
+    gl_reload_program(glContext.finalProgram, transientStorage);
+    gl_reload_program(glContext.fontProgram, transientStorage);
+    gl_reload_program(glContext.lightProgram, transientStorage);
+    gl_reload_program(glContext.program2, transientStorage);
   }
 
   // Calc Lightmap Camera & upload GlobalData to GPU
@@ -695,12 +762,15 @@ void gl_render(SDL_Window* window)
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   // Copy Global Data to the GPU
-  glBindBufferBase(GL_UNIFORM_BUFFER, 4, glContext.globalUBO);
+  glBindBufferBase(GL_UNIFORM_BUFFER, 0, glContext.globalUBO);
   glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GlobalData), &renderData->globalData);
 
   // Render Game
   if(renderData->transformCount > 0)
   {
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+
     // Upload transforms (Into Vertext Array)
     const u64 size = sizeof(Transform) * renderData->transformCount;
     const u32 offset = 0;
@@ -711,6 +781,9 @@ void gl_render(SDL_Window* window)
 
     // Clear Data
     renderData->transformCount = 0;
+
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
   }
 
   // Test Ray Marching
@@ -750,8 +823,97 @@ void gl_render(SDL_Window* window)
 
     // Clear Color
     {
-      // const Vec4 ambientColor = {180.0f/255.0f, 180.0f/255.0f, 0.0f, 180.0f/255.0f};
       const Vec4 ambientColor = {180.0f/255.0f, 180.0f/255.0f, 0.0f, 1.0f};
+      // const Vec4 ambientColor = {90.0f/255.0f, 90.0f/255.0f, 0.0f, 1.0f};
+      glClearColor(ambientColor.r, ambientColor.g, ambientColor.b, ambientColor.a);
+      glClear(GL_COLOR_BUFFER_BIT);
+    }
+
+    // Upload transforms (Into Vertext Array)
+    const u64 size = sizeof(Transform) * renderData->lightCount;
+    const u32 offset = 0;
+    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData->lights[0]);
+    
+    // Draw Transforms
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData->lightCount);
+
+    // Clear Data
+    // renderData->lightCount = 0;
+    glDisable(GL_BLEND);
+  }
+
+
+  // Back buffer again
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+  // https://www.reddit.com/r/opengl/comments/ejwqa8/opengl_glfw_program_breaks_when_nondefault/
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+  // Render Light Map on top
+  {
+    glUseProgram(glContext.lightProgram.ID);
+    glBindTexture(GL_TEXTURE_2D, glContext.lightMap.ID);
+    glViewport(0, 0, renderData->globalData.windowSize.x, renderData->globalData.windowSize.y);
+
+    // Blending
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_COLOR, GL_ONE, GL_ONE, GL_ZERO);
+    glBlendEquationSeparate(GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_ADD);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    glDisable(GL_BLEND);
+  }
+
+  // Render Game2
+  if(renderData->transformCount2 > 0)
+  {
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+
+    glUseProgram(glContext.mainProgram.ID);
+    glBindTexture(GL_TEXTURE_2D, glContext.textureAtlas.ID);
+
+    glBindVertexArray(glContext.VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, glContext.VBO);
+
+    glViewport(0, 0, renderData->globalData.windowSize.x, renderData->globalData.windowSize.y);
+
+    // Upload transforms (Into Vertext Array)
+    const u64 size = sizeof(Transform) * renderData->transformCount2;
+    const u32 offset = 0;
+    glBufferSubData(GL_ARRAY_BUFFER, offset, size, &renderData->transforms2[0]);
+    
+    // Draw Transforms
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData->transformCount2);
+
+    // Clear Data
+    renderData->transformCount2 = 0;
+
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+  }
+
+  // Apply Lighting
+  if(renderData->lightCount > 0)
+  {
+    for(int i = 0; i < renderData->lightCount; i++)
+    {
+      RenderOptionFlags renderOptions = RENDER_OPTION_LINEAR_FILTERING;
+      const int pack1 = renderData->lights[i].pack1 & 0xFF; // First 8 Bits
+      renderData->lights[i].pack1 = pack1 + (renderOptions << 8);
+    }
+    glViewport(0, 0, LIGHT_MAP_SIZE.x,  LIGHT_MAP_SIZE.y);
+    // glUseProgram(glContext.gameProgram.ID);
+    glBindFramebuffer(GL_FRAMEBUFFER, glContext.lightMapFB.ID);
+
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendEquationSeparate(GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_ADD);
+
+    // Clear Color
+    {
+      const Vec4 ambientColor = {180.0f/255.0f, 180.0f/255.0f, 0.0f, 1.0f};
+      // const Vec4 ambientColor = {90.0f/255.0f, 90.0f/255.0f, 0.0f, 1.0f};
       glClearColor(ambientColor.r, ambientColor.g, ambientColor.b, ambientColor.a);
       glClear(GL_COLOR_BUFFER_BIT);
     }
@@ -768,6 +930,7 @@ void gl_render(SDL_Window* window)
     renderData->lightCount = 0;
     glDisable(GL_BLEND);
   }
+
 
   // Back buffer again
   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);

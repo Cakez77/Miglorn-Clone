@@ -3,6 +3,7 @@
 #include "assets.h"
 #include "input.h"
 #include "sound.h"
+#include "shader_header.h"
 
 // For font
 // To Load TTF Files
@@ -21,9 +22,15 @@ static SDL_Texture* atlas;
 // #############################################################################
 //                           Render Constats
 // #############################################################################
+typedef int RenderOptionFlags;
 constexpr u32 MAX_TRANSFORMS = 1000;
 constexpr u32 MAX_VERTICES = 200;
 const u32 FONT_ATLAS_SIZE = 1024;
+
+// This is Cool!
+constexpr Color COLOR_WHITE = {.hex = 0xFFFFFFFF};
+constexpr Color COLOR_GREEN = {.hex = 0x00FF00FF};
+u32 get_hex(u8 r, u8 g, u8 b, u8 a) { return (r << 24u) + (g << 16u) + (b << 8u) + a;}
 
 enum FontType
 {
@@ -61,48 +68,6 @@ struct Vertex
   Vec2 pos;
 };
 
-struct Transform
-{
-  i32 atlasPosPacked;
-  i32 spriteSize;
-  Vec2 pos;
-  Vec2 size;
-  int pack1; // [renderOptions - 24 Bits][fontIdx - 4 Bits][matrixIdx - 4 Bits]
-  float layer;
-};
-static_assert(sizeof(Transform) % 16 == 0, "Transform is not 16 Byte aligned");
-
-struct Color
-{
-  union
-  {
-    u32 hex;
-    u8 channels[4];
-  };
-
-  bool operator==(const Color& other)
-  {
-    return hex == other.hex;
-  }
-  bool operator!=(const Color& other)
-  {
-    return !(hex == other.hex);
-  }
-};
-
-// This is Cool!
-constexpr Color COLOR_GREEN = {.hex = 0x1e6f50FF};
-constexpr Color COLOR_GREEN_SAME = {.channels{30, 111, 80, 255}};
-
-struct Material
-{
-  Color color;
-
-  bool operator==(const Material& other)
-  {
-    return color == other.color;
-  }
-};
 
 struct LightObstacle
 {
@@ -122,7 +87,6 @@ struct GlobalData
   Mat4 orthProjGame[ORTHO_PROJ_COUNT];
   LightObstacle obstacles[10];
 };
-static_assert(sizeof(GlobalData) % 16 == 0, "GlobalData is not 16 Byte aligned");
 
 struct Glyph
 {
@@ -173,6 +137,9 @@ struct RenderData
   int transformCount = 0;
   Transform transforms[MAX_TRANSFORMS];
 
+  int transformCount2 = 0;
+  Transform transforms2[MAX_TRANSFORMS];
+
   int uiTransformCount = 0;
   Transform uiTransforms[MAX_TRANSFORMS];
 
@@ -185,20 +152,28 @@ struct RenderData
 
 struct TransformData
 {
+  Material mat;
   Vec2 pos;
   Vec2 size;
   float layer;
   int matIdx;
   int fontIdx;
-  int renderOptions;
+  RenderOptionFlags renderOptions;
 };
 
 struct DrawData
 {
+  Material mat = {.color = COLOR_WHITE};
   float scale = 1;
   float layer = 0;
-  int renderOptions = 0;
+  RenderOptionFlags renderOptions = 0;
 };
+
+// #############################################################################
+//                           Render Data Size Validations
+// #############################################################################
+// static_assert(sizeof(Transform) % 16 == 0, "Transform is not 16 Byte aligned");
+static_assert(sizeof(GlobalData) % 16 == 0, "GlobalData is not 16 Byte aligned");
 
 // #############################################################################
 //                           Render Globals
@@ -242,8 +217,11 @@ Transform get_transform(Vec2 atlasOffset, Vec2 spriteSize, const TransformData& 
     .spriteSize = pack_int(spriteSize),
     .pos = data.pos,
     .size = data.size,
+    // 4 Bits matIdx, 4 Bits fontIdx, 24 Bits renderOptions
     .pack1 = data.matIdx + (data.fontIdx << 4) + (data.renderOptions << 8),
     .layer = data.layer,
+    .color = data.mat.color.hex,
+    .addColor = data.mat.add.hex,
   };
 
   return t;
@@ -491,11 +469,12 @@ void draw_sprite(const SpriteID spriteID, Vec2 pos, Vec2 size, const DrawData& d
     return;
   }
 
-  float layer = pos.y + 100'000'000.0f; // To handle negative y pos
+  float layer = (pos.y + 100'000.0f) / 200'000.0f; // To handle negative y pos
   const Sprite& sprite = SPRITES[spriteID];
   pos = pos - (size/2 - sprite.pivotOffset) * drawData.scale;
 
   Transform t = get_transform(spriteID, {
+    .mat = drawData.mat,
     .pos = pos,
     .size = size * drawData.scale,
     .layer = layer,
@@ -510,12 +489,35 @@ void draw_sprite(const SpriteID spriteID, Vec2 pos, const DrawData& drawData = {
   draw_sprite(spriteID, pos, sprite.size, drawData);
 }
 
-enum RenderOptions
+void draw_sprite2(const SpriteID spriteID, Vec2 pos, Vec2 size, const DrawData& drawData = {})
 {
-  RENDER_OPTION_LIGHT_RAYMARCH = BIT(0),
-};
+  // Early return if full
+  if(renderData->transformCount2 >= ArraySize(renderData->transforms2))
+  {
+    return;
+  }
 
-void draw_light(Vec2 pos, float scale = 1)
+  float layer = (pos.y + 100'000.0f) / 200'000.0f; // To handle negative y pos
+  const Sprite& sprite = SPRITES[spriteID];
+  pos = pos - (size/2 - sprite.pivotOffset) * drawData.scale;
+
+  Transform t = get_transform(spriteID, {
+    .mat = drawData.mat,
+    .pos = pos,
+    .size = size * drawData.scale,
+    .layer = layer,
+    .matIdx = ORTHO_PROJ_GAME,
+    .renderOptions = drawData.renderOptions});
+  renderData->transforms2[renderData->transformCount2++] = t;
+}
+
+void draw_sprite2(const SpriteID spriteID, Vec2 pos, const DrawData& drawData = {})
+{
+  const Sprite& sprite = SPRITES[spriteID];
+  draw_sprite2(spriteID, pos, sprite.size, drawData);
+}
+
+void draw_light(Vec2 pos, Color color = COLOR_WHITE, float scale = 1)
 {
   // Early return in case the array is full
   if(renderData->lightCount >= ArraySize(renderData->lights))
@@ -523,13 +525,15 @@ void draw_light(Vec2 pos, float scale = 1)
     return;
   }
 
-  const Sprite& sprite = SPRITES[SPRITE_LIGHT];
+  const Sprite& sprite = SPRITES[SPRITE_LIGHT_32];
   pos = pos - (sprite.size/2 - sprite.pivotOffset) * scale;
-  Transform t = get_transform(SPRITE_LIGHT, {
+  Transform t = get_transform(SPRITE_LIGHT_32, {
+    .mat = {.color = color},
     .pos = pos,
     .size = sprite.size * scale,
     .matIdx = ORTHO_PROJ_GAME,
-    .renderOptions = RENDER_OPTION_LIGHT_RAYMARCH});
+    .renderOptions = RENDER_OPTION_LIGHT_RAYMARCH | 
+      RENDER_OPTION_LINEAR_FILTERING});
   renderData->lights[renderData->lightCount++] = t;
 }
 
@@ -538,6 +542,7 @@ void draw_light(Vec2 pos, float scale = 1)
 // #############################################################################
 struct UIDrawData
 {
+  Material mat;
   SoundID playSound = SOUND_NONE;
   SoundID hoverSound = SOUND_NONE;
   Vec2 anchor;
@@ -557,6 +562,7 @@ void draw_ui_sprite(const SpriteID spriteID, Vec2 pos, Vec2 size, const UIDrawDa
     (pos - (size/2 - sprite.pivotOffset) * uiData.drawData.scale);
 
   Transform t = get_transform(spriteID, {
+    .mat = uiData.mat,
     .pos = pos,
     .size = size * uiData.drawData.scale,
     .layer = renderData->uiLayer,
@@ -577,10 +583,11 @@ void draw_ui_sprite(const SpriteID spriteID, Vec2 pos, const UIDrawData& uiData 
 struct TextData
 {
   FontType fontType = FONT_TEXT_2X;
+  Color color;
   Vec2 anchor;
   float fontSize = 1.0f;
   float rotation = 0;
-  int renderOptions;
+  RenderOptionFlags renderOptions;
   // todo: function over time like sinf
   // todo: individual scaling
 };
@@ -642,6 +649,7 @@ void draw_ui_text(char* text, Vec2 pos, const TextData& textData = {})
       // Draw the Glyph
       const Glyph& glyph = get_glyph_if_exists(font, codepoint);
       Transform t = get_transform(glyph.textureCoords, glyph.size, {
+        .mat.color = textData.color,
         .pos = pos - glyph.offset * textData.fontSize,
         .size = glyph.size * textData.fontSize,
         .layer = renderData->uiLayer,

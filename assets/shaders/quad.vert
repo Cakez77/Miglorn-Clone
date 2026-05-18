@@ -1,4 +1,3 @@
-#version 300 es
 
 // Input
 // layout (location = 0) in vec2 atlasPosIn;
@@ -8,6 +7,7 @@ layout (location = 2) in vec2 posIn;
 layout (location = 3) in vec2 sizeIn;
 layout (location = 4) in int pack1;
 layout (location = 5) in float layerIn;
+layout (location = 6) in uvec2 matIn;
 
 // Output
 flat out vec2 spriteSize;
@@ -15,6 +15,7 @@ flat out int fontIdx;
 out vec2 textureCoords;
 out vec2 uv;
 flat out int renderOptions;
+flat out uvec2 mat;
 
 struct LightObstacle
 {
@@ -66,9 +67,10 @@ void main()
   int matrixIdx = int(pack1 & 0xF); // first 4 Bits
   int fontIdxIn = int((pack1 >> 4) & 0xF); // next 4 Bits
   renderOptions = int(pack1 >> 8); // last 24 Bits
+  mat = matIn;
 
   fontIdx = fontIdxIn;
-  float layer = layerIn / 200000000.0;
+  float layer = layerIn;
 
   mat4 orthoProj = globalData.orthProjGame[matrixIdx];
   vec4 vertexPos = orthoProj * vec4(vertices[gl_VertexID], layer, 1);

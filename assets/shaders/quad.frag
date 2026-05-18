@@ -1,11 +1,10 @@
-#version 300 es
-precision highp float;
 
 // Input
 flat in vec2 spriteSize;
 in vec2 textureCoords;
 in vec2 uv;
 flat in int renderOptions;
+flat in uvec2 mat;
 
 // Output
 layout (location = 0) out vec4 fragColor;
@@ -45,14 +44,15 @@ void main()
   // vec4 textureColor = texture(textureAtlas, uv);
   vec4 textureColor = texelFetch(textureAtlas, ivec2(textureCoords), 0);
 
-  int RENDER_OPTION_LIGHT_RAYMARCH = 1;
+  if(bool(renderOptions & RENDER_OPTION_LINEAR_FILTERING))
+  {
+    vec2 uv = vec2(textureCoords) / vec2(textureSize(textureAtlas, 0));
+    textureColor = texture(textureAtlas, uv);
+    textureColor += gradientNoise(gl_FragCoord.xy) * 0.003;
+  }
 
   if(bool(renderOptions & RENDER_OPTION_LIGHT_RAYMARCH))
   {
-    mat4 orthoProj = globalData.orthProjGame[0];
-    vec2 camPos = (orthoProj * vec4(globalData.camPos, 0.0, 0.0)).xy;
-    // vec2 st =  camPos;
-    // vec2 st =  camPos + (uv * 2.0 - 1.0); // convert to ndc
     vec2 st = (uv * 2.0 - 1.0); // convert to ndc
     st.y = -st.y;
     float lengthSquared = dot(st, st);
@@ -68,27 +68,30 @@ void main()
 
     for(int i = 0; i < globalData.lightObstacleCount; i++)
     {
-      float dist = globalData.obstacles[i].dist;
+      float startDist = globalData.obstacles[i].dist;
+      float fade = mix(10.0, 1.0, startDist*2.0);
+      // float fade = 1.0;
+      // float startDeg =  globalData.obstacles[i].startDeg - fade/2.0;
+      // float endDeg =  globalData.obstacles[i].endDeg + fade/2.0;
       float startDeg =  globalData.obstacles[i].startDeg;
       float endDeg =  globalData.obstacles[i].endDeg;
 
-      if(startDeg >= endDeg)
+      if(startDeg >= endDeg && (deg >= startDeg || deg <= endDeg) && lengthSquared > startDist)
       {
-        if(deg >= startDeg && lengthSquared > dist)
+        endDeg += 360.0;
+        if(deg < startDeg)
         {
-          // Blocked vision
-          textureColor.a = 0.0;
+          deg += 360.0;
         }
-
-        if(deg <= endDeg && lengthSquared > dist)
-        {
-          // Blocked vision
-          textureColor.a = 0.0;
-        }
+        // example:  startDeg = 345 & endDeg = 11
+        float degDist = min(deg - startDeg, endDeg - deg);
+        textureColor.a *= mix(1.0, 0.0, clamp(degDist/fade, 0.0, 1.0));
+        break;
       }
-      else if(deg >= startDeg && deg <= endDeg && lengthSquared > dist)
+      else if(deg >= startDeg && deg <= endDeg && lengthSquared > startDist)
       {
-        textureColor.a = 0.0;
+        float degDist = min(deg - startDeg, endDeg - deg);
+        textureColor.a *= mix(1.0, 0.0, clamp(degDist/fade, 0.0, 1.0));
       }
     }
   }
@@ -108,6 +111,25 @@ void main()
   // textureColor.g -= pow(180.0/255.0, 2.0); 
   // textureColor.b -= 0.0; 
 
-  fragColor = textureColor; 
-  // vec4(1,1,1,1);
+
+  Color emissive;
+  emissive.hex = mat[0];
+  Color addColor;
+  addColor.hex = mat[1];
+
+
+  Color myColor; 
+  // myColor.hex = 0x1e6f50FF;
+  myColor.hex = uint(0xFFFFFFFF);
+  // myColor.hex = 0x00FF00FF;
+  vec4 color = get_color(myColor.hex);
+  vec4 colorEmissive = get_color(emissive.hex);
+  vec4 colorAdd = get_color(addColor.hex);
+  // uint test = (128u << 24) + (128u << 16) + (128u << 8) + 128u;
+  // vec4 colorAdd = get_color(4286348412u);
+  // vec4 colorAdd = get_color(test);
+  // colorAdd = vec4(180.0/255.0, 180.0/255.0, 0.0, 1.0);
+
+  // Output
+  fragColor = textureColor * colorEmissive - colorAdd;
 }

@@ -91,6 +91,15 @@ void pack_texture()
   spritesFileBufferArray = (char*)malloc(MB(2));
   BumpAllocator transientStorage = make_bump_allocator(MB(5));
 
+	// If we don't do this, then the first calculation of dt
+	// will result in over 190'000'.0f
+	u64 currentTick = SDL_GetPerformanceCounter();
+	u64 lastTick = currentTick;
+	u64 ticksPerSecond = SDL_GetPerformanceFrequency();
+  const double secondsPerTick = 1.0 / ticksPerSecond;
+  bool packAtlas = false;
+  float time = 0;
+
   // Watch directory for changes
   {
     HANDLE file = CreateFile(WATCH_PATH,
@@ -119,6 +128,7 @@ void pack_texture()
       // This call blocks, so we don't need to wait at all
       // it does it for us. So whenever a file changes, this 
       // will fire
+
       DWORD result = WaitForSingleObject(overlapped.hEvent, 0);
       if (result == WAIT_OBJECT_0) 
       {
@@ -155,6 +165,7 @@ void pack_texture()
 
             case FILE_ACTION_MODIFIED: 
             {
+              packAtlas = true;
               wprintf(L"    Modified: %.*s\n", name_len, event->FileName);
             } break;
 
@@ -184,189 +195,6 @@ void pack_texture()
             break;
           }
         }
-
-        // Pack Atlas & write Sprites file
-        {
-          int fileOffsetEnum = 0;
-          int fileOffsetArray = 0;
-          memset(spritesFileBufferEnum, 0, MB(2));
-          memset(spritesFileBufferArray, 0, MB(2));
-
-          const int width = 2048;
-          const int nodeCount = width;
-          int rectCount = 0;
-          static stbrp_node nodes[width];
-          static stbrp_rect rects[width];
-
-          while(char* fileName = get_next_file(WATCH_PATH_REG))
-          {
-            if(!strstr(fileName, ".png"))
-            {
-              continue;
-            }
-
-            int fileSize = 0;
-            const char* filePath = format_text("%s/%s", WATCH_PATH, fileName);
-            const unsigned char* fileData = (unsigned char*)read_file(filePath, &fileSize, &transientStorage);
-            if(fileData)
-            {
-              int imgWidth = 0, imgHeight = 0, nChannels = 0;
-              stbi_info_from_memory(fileData, fileSize, &imgWidth, &imgHeight, &nChannels);
-
-              rects[rectCount++] = {
-                .w = imgWidth,
-                .h = imgHeight,
-              };
-            }
-          }
-
-
-          stbrp_context context = {};
-          stbrp_init_target(&context, 2048, 2048, nodes, nodeCount);
-          stbrp_pack_rects(&context, rects, rectCount);
-
-          // Sprites file
-          if(file_exists("src/sprites.h"))
-          {
-            delete_file("src/sprites.h");
-          }
-
-          const char* spriteDatatDefinition = 
-          "\nstruct Sprite2\n"
-          "{\n"
-          "\tIVec2 atlasOffset;\n"
-          "\tIVec2 size;\n"
-          "\tIVec2 pivotOffset;\n"
-          "\tint frameCount;\n"
-          "};\n\n";
-
-          // Header
-          write_line(spritesFileBufferEnum, "#pragma once\n#include \"lib.h\"\n\n", fileOffsetEnum);
-          write_line(spritesFileBufferEnum, spriteDatatDefinition, fileOffsetEnum);
-          write_line(spritesFileBufferEnum, "enum SpriteID2 \n{\n", fileOffsetEnum);
-          write_line(spritesFileBufferArray, "Sprite2 SPRITES2[SPRITE_COUNT2] =\n{\n", fileOffsetArray);
-
-          int spriteCount;
-          struct SpriteData
-          {
-            Vec2 atlasOffset;
-            Vec2 size;
-            Vec2 pivotOffset;
-            int frameCount;
-          };
-          static SpriteData SPRITES[2000];
-
-          // Pack Atlas
-          int idx = 0;
-          static unsigned char pixels[width * width * 4];
-          while(char* fileNameExt = get_next_file(WATCH_PATH_REG))
-          {
-            if(!strstr(fileNameExt, ".png"))
-            {
-              continue;
-            }
-            
-            char fileName[MAX_PATH] = {};
-            const int nameLen = str_len(fileNameExt);
-            memcpy(fileName, fileNameExt, nameLen - 4); // Remove extension ".png"
-
-            // Pack file into atlas
-            int imgWidth = 0, imgHeight = 0, nChannels = 0, iniFileSize;
-            const char* filePath = format_text("%s/%s.png", WATCH_PATH, fileName);
-            const char* iniPath = format_text("%s/%s.txt", WATCH_PATH, fileName);
-            char* spritePixels = (char*)stbi_load(filePath, &imgWidth, &imgHeight, &nChannels, 4);
-            ConfigINI iniData = parse_ini(iniPath, &transientStorage);
-            if(spritePixels)
-            {
-              const stbrp_rect& rect = rects[idx++];
-
-              // Uppercase all characters
-              strtoupper(fileName);
-              char* enumName = format_text("SPRITE_%s", fileName);
-
-              int frameCount = 1;
-              int pivotOffsetX = 0;
-              int pivotOffsetY = 0;
-              int spriteSizeX = 0;
-              int spriteSizeY = 0;
-
-              // Read data from ini file
-              int tagCount = 0;
-              for(INIField& field : iniData.fields)
-              {
-                // Needs to be the last field in the ini
-                if(strstr(field.name, "tagName"))
-                {
-                  // Empty Tags for sprites with no Tags
-                  if(str_len(field.value) > 0)
-                  {
-                    strtoupper(field.value);
-                    enumName = format_text("SPRITE_%s_%s", fileName, field.value);
-                  }
-
-                  // Enum Definition
-                  char* enumLine = format_text("\t%s,\n", enumName);
-                  write_line(spritesFileBufferEnum, enumLine, fileOffsetEnum);
-
-                  // Sprite Data in array
-                  const int atlasOffsetX = rect.x;
-                  const int atlasOffsetY = rect.y;
-                  char* spriteData = 
-                    format_text("\t[%s] = {.atlasOffset={%d, %d}, .size={%d, %d}, .pivotOffset={%d, %d}, .frameCount=%d},\n",
-                      enumName, 
-                      atlasOffsetX, atlasOffsetY, 
-                      spriteSizeX, spriteSizeY, 
-                      pivotOffsetX, pivotOffsetY, 
-                      frameCount);
-                  write_line(spritesFileBufferArray, spriteData, fileOffsetArray);
-                }
-                else if(strstr(field.name, "frameCount"))
-                {
-                  frameCount = atoi(field.value);
-                }
-                else if(strstr(field.name, "pivotOffsetX"))
-                {
-                  pivotOffsetX = atoi(field.value);
-                }
-                else if(strstr(field.name, "pivotOffsetY"))
-                {
-                  pivotOffsetY = atoi(field.value);
-                }
-                else if(strstr(field.name, "spriteSizeX"))
-                {
-                  spriteSizeX = atoi(field.value);
-                }
-                else if(strstr(field.name, "spriteSizeY"))
-                {
-                  spriteSizeY = atoi(field.value);
-                }
-              }
-
-              // Copy the pixels into Atlas
-              const int col = rect.x * 4;
-              for(int i = 0; i < imgHeight; i++)
-              {
-                const int atlasRow = (rect.y + i) * width * 4;
-                const int spriteRow = i * imgWidth * 4;
-                memcpy(pixels + atlasRow + col, spritePixels + spriteRow, sizeof(char) * 4 * imgWidth);
-              }
-
-              transientStorage.used = 0;
-            }
-          }
-
-          stbi_write_png("assets/textures/textureAtlas.png", width, width, 4, pixels, width * 4);
-
-          // Write the end of the enum & sprites array
-          write_line(spritesFileBufferEnum, "\tSPRITE_COUNT2\n};\n\n", fileOffsetEnum);
-          write_line(spritesFileBufferArray, "\n};\n\n", fileOffsetArray);
-
-          SDL_IOStream* spritesFile = SDL_IOFromFile("src/sprites.h", "w");
-          SDL_WriteIO(spritesFile, spritesFileBufferEnum, fileOffsetEnum);
-          SDL_WriteIO(spritesFile, spritesFileBufferArray, fileOffsetArray);
-
-          SDL_CloseIO(spritesFile);
-        }
         
         // Queue the next event
         next_wait_event:
@@ -376,6 +204,207 @@ void pack_texture()
               FILE_NOTIFY_CHANGE_DIR_NAME   |
               FILE_NOTIFY_CHANGE_LAST_WRITE,
               NULL, &overlapped, NULL);
+      }
+
+      lastTick = currentTick;
+      currentTick = SDL_GetPerformanceCounter();
+	    const float dt = (currentTick - lastTick) * secondsPerTick;
+      if(packAtlas)
+      {
+        time += dt;
+      }
+      const float waitTime = 1.0f;
+
+      // Pack Atlas & write Sprites file
+      if(packAtlas && time > waitTime)
+      {
+        SDL_Log("Packing Texture Atlas...");
+        time = 0;
+        packAtlas = false;
+
+        int fileOffsetEnum = 0;
+        int fileOffsetArray = 0;
+        memset(spritesFileBufferEnum, 0, MB(2));
+        memset(spritesFileBufferArray, 0, MB(2));
+
+        const int width = 2048;
+        const int nodeCount = width;
+        int rectCount = 0;
+        static stbrp_node nodes[width];
+        static stbrp_rect rects[width];
+
+        while(char* fileName = get_next_file(WATCH_PATH_REG))
+        {
+          if(!strstr(fileName, ".png"))
+          {
+            continue;
+          }
+
+          int fileSize = 0;
+          const char* filePath = format_text("%s/%s", WATCH_PATH, fileName);
+          const unsigned char* fileData = (unsigned char*)read_file(filePath, &fileSize, &transientStorage);
+
+          if(fileData)
+          {
+            int imgWidth = 0, imgHeight = 0, nChannels = 0;
+            stbi_info_from_memory(fileData, fileSize, &imgWidth, &imgHeight, &nChannels);
+
+            rects[rectCount++] = {
+              .w = imgWidth,
+              .h = imgHeight,
+            };
+          }
+        }
+
+
+        stbrp_context context = {};
+        stbrp_init_target(&context, 2048, 2048, nodes, nodeCount);
+        stbrp_pack_rects(&context, rects, rectCount);
+
+        // Sprites file
+        if(file_exists("src/assets.h"))
+        {
+          CopyFile("src/assets.h", "src/assets.h.bak", false);
+          delete_file("src/assets.h");
+        }
+
+        const char* spriteDatatDefinition = 
+        "\nstruct Sprite\n"
+        "{\n"
+        "\tVec2 atlasOffset;\n"
+        "\tVec2 size;\n"
+        "\tVec2 pivotOffset;\n"
+        "\tint frameCount;\n"
+        "};\n\n";
+
+        // Header
+        write_line(spritesFileBufferEnum, "#pragma once\n#include \"lib.h\"\n\n", fileOffsetEnum);
+        write_line(spritesFileBufferEnum, spriteDatatDefinition, fileOffsetEnum);
+        write_line(spritesFileBufferEnum, "enum SpriteID \n{\n", fileOffsetEnum);
+        write_line(spritesFileBufferArray, "const Sprite SPRITES[SPRITE_COUNT] =\n{\n", fileOffsetArray);
+
+        int spriteCount;
+        struct SpriteData
+        {
+          Vec2 atlasOffset;
+          Vec2 size;
+          Vec2 pivotOffset;
+          int frameCount;
+        };
+        static SpriteData SPRITES[2000];
+
+        // Pack Atlas
+        int idx = 0;
+        static unsigned char pixels[width * width * 4];
+        while(char* fileNameExt = get_next_file(WATCH_PATH_REG))
+        {
+          if(!strstr(fileNameExt, ".png"))
+          {
+            continue;
+          }
+          
+          char fileName[MAX_PATH] = {};
+          const int nameLen = str_len(fileNameExt);
+          memcpy(fileName, fileNameExt, nameLen - 4); // Remove extension ".png"
+
+          // Pack file into atlas
+          int imgWidth = 0, imgHeight = 0, nChannels = 0, iniFileSize;
+          const char* filePath = format_text("%s/%s.png", WATCH_PATH, fileName);
+          const char* iniPath = format_text("%s/%s.txt", WATCH_PATH, fileName);
+          char* spritePixels = (char*)stbi_load(filePath, &imgWidth, &imgHeight, &nChannels, 4);
+          ConfigINI iniData = parse_ini(iniPath, &transientStorage);
+          if(spritePixels)
+          {
+            const stbrp_rect& rect = rects[idx++];
+
+            // Uppercase all characters
+            strtoupper(fileName);
+            char* enumName = format_text("SPRITE_%s", fileName);
+
+            int frameCount = 1;
+            int pivotOffsetX = 0;
+            int pivotOffsetY = 0;
+            int spriteSizeX = 0;
+            int spriteSizeY = 0;
+
+            // Read data from ini file
+            int tagCount = 0;
+            for(INIField& field : iniData.fields)
+            {
+              // Needs to be the last field in the ini
+              if(strstr(field.name, "tagName"))
+              {
+                // Empty Tags for sprites with no Tags
+                if(str_len(field.value) > 0)
+                {
+                  strtoupper(field.value);
+                  enumName = format_text("SPRITE_%s_%s", fileName, field.value);
+                }
+
+                // Enum Definition
+                char* enumLine = format_text("\t%s,\n", enumName);
+                write_line(spritesFileBufferEnum, enumLine, fileOffsetEnum);
+
+                // Sprite Data in array
+                const int atlasOffsetX = rect.x;
+                const int atlasOffsetY = rect.y;
+                char* spriteData = 
+                  format_text("\t[%s] = {.atlasOffset={%d, %d}, .size={%d, %d}, .pivotOffset={%d, %d}, .frameCount=%d},\n",
+                    enumName, 
+                    atlasOffsetX, atlasOffsetY, 
+                    spriteSizeX, spriteSizeY, 
+                    pivotOffsetX, pivotOffsetY, 
+                    frameCount);
+                write_line(spritesFileBufferArray, spriteData, fileOffsetArray);
+              }
+              else if(strstr(field.name, "frameCount"))
+              {
+                frameCount = atoi(field.value);
+              }
+              else if(strstr(field.name, "pivotOffsetX"))
+              {
+                pivotOffsetX = atoi(field.value);
+              }
+              else if(strstr(field.name, "pivotOffsetY"))
+              {
+                pivotOffsetY = atoi(field.value);
+              }
+              else if(strstr(field.name, "spriteSizeX"))
+              {
+                spriteSizeX = atoi(field.value);
+              }
+              else if(strstr(field.name, "spriteSizeY"))
+              {
+                spriteSizeY = atoi(field.value);
+              }
+            }
+
+            // Copy the pixels into Atlas
+            const int col = rect.x * 4;
+            for(int i = 0; i < imgHeight; i++)
+            {
+              const int atlasRow = (rect.y + i) * width * 4;
+              const int spriteRow = i * imgWidth * 4;
+              memcpy(pixels + atlasRow + col, spritePixels + spriteRow, sizeof(char) * 4 * imgWidth);
+            }
+
+            transientStorage.used = 0;
+          }
+        }
+
+        stbi_write_png("assets/textures/textureAtlas.png", width, width, 4, pixels, width * 4);
+
+        // Write the end of the enum & sprites array
+        write_line(spritesFileBufferEnum, "\tSPRITE_COUNT\n};\n\n", fileOffsetEnum);
+        write_line(spritesFileBufferArray, "\n};\n\n", fileOffsetArray);
+
+        SDL_IOStream* spritesFile = SDL_IOFromFile("src/assets.h", "w");
+        SDL_WriteIO(spritesFile, spritesFileBufferEnum, fileOffsetEnum);
+        SDL_WriteIO(spritesFile, spritesFileBufferArray, fileOffsetArray);
+
+        SDL_CloseIO(spritesFile);
+
+        system("sh ./build.sh");
       }
     }
   }

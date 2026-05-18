@@ -30,14 +30,15 @@ static update_game_type* update_game_ptr;
 // #############################################################################
 static GameState allocGameState = {};
 static RenderData allocRenderData = {};
+static BumpAllocator transientStorage = {};
 
 // #############################################################################
 //                           Update Loop
 // #############################################################################
 void app_loop()
 {
-	static u64 ticksPerSecond = SDL_GetPerformanceFrequency();
-  static const double secondsPerTick = 1.0 / ticksPerSecond;
+	const u64 ticksPerSecond = SDL_GetPerformanceFrequency();
+  const double secondsPerTick = 1.0 / ticksPerSecond;
 	gameState->lastTick = gameState->currentTick;
 	gameState->currentTick = SDL_GetPerformanceCounter();
 	const float dt = (gameState->currentTick - gameState->lastTick) * secondsPerTick;
@@ -127,7 +128,7 @@ void app_loop()
 	update_ui();
 
 	// Draw & Display
-	gl_render(gameState->window);
+	gl_render(gameState->window, &transientStorage);
 	if(!SDL_GL_SwapWindow(gameState->window))
 	{
 		// I Hope you have a nice fucking day asshole
@@ -145,6 +146,10 @@ int main(void)
 		return -1;
 	}
 
+	transientStorage = make_bump_allocator(MB(32));
+
+	// SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "1");
+	// SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 
@@ -181,7 +186,7 @@ int main(void)
 	renderData->viewportSize = windowSize;
 	const float uiScale = renderData->uiScale;
   renderData->uiSpace = Vec2{ceilf(windowSize.x / uiScale), ceilf(windowSize.y / uiScale)};
-	gl_init(gameState->window);
+	gl_init(gameState->window, &transientStorage);
 
 	// If we don't do this, then the first calculation of dt
 	// will result in over 190'000'.0f
@@ -255,112 +260,112 @@ void reload_game_dll()
   }
 }
 
-#include "dbghelp.h"
+// #include "dbghelp.h"
 
 //Prints stack trace based on context record
-int platform_print_stack(void* exPointer) 
-{
-  _EXCEPTION_POINTERS* ex = (_EXCEPTION_POINTERS*)exPointer;
+// int platform_print_stack(void* exPointer) 
+// {
+//   _EXCEPTION_POINTERS* ex = (_EXCEPTION_POINTERS*)exPointer;
 
-  SDL_Log("*** Exception 0x%x occured ***\n", (unsigned int)ex->ExceptionRecord->ExceptionCode);    
-  CONTEXT* ctx = ex->ContextRecord;
+//   SDL_Log("*** Exception 0x%x occured ***\n", (unsigned int)ex->ExceptionRecord->ExceptionCode);    
+//   CONTEXT* ctx = ex->ContextRecord;
 
-  const int MaxNameLen = 256;
-  BOOL    result;
-  HANDLE  process;
-  HANDLE  thread;
-  HMODULE hModule;
+//   const int MaxNameLen = 256;
+//   BOOL    result;
+//   HANDLE  process;
+//   HANDLE  thread;
+//   HMODULE hModule;
 
-  STACKFRAME64        stack;
-  ULONG               frame;    
-  DWORD64             displacement;
+//   STACKFRAME64        stack;
+//   ULONG               frame;    
+//   DWORD64             displacement;
 
-  DWORD disp;
-  IMAGEHLP_LINE64 *line;
+//   DWORD disp;
+//   IMAGEHLP_LINE64 *line;
 
-  char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
-  char name[MaxNameLen];
-  char module[MaxNameLen];
-  PSYMBOL_INFO pSymbol = (PSYMBOL_INFO)buffer;
+//   char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+//   char name[MaxNameLen];
+//   char module[MaxNameLen];
+//   PSYMBOL_INFO pSymbol = (PSYMBOL_INFO)buffer;
 
-  // On x64, StackWalk64 modifies the context record, that could
-  // cause crashes, so we create a copy to prevent it
-  CONTEXT ctxCopy;
-  memcpy(&ctxCopy, ctx, sizeof(CONTEXT));
+//   // On x64, StackWalk64 modifies the context record, that could
+//   // cause crashes, so we create a copy to prevent it
+//   CONTEXT ctxCopy;
+//   memcpy(&ctxCopy, ctx, sizeof(CONTEXT));
 
-  memset( &stack, 0, sizeof( STACKFRAME64 ) );
+//   memset( &stack, 0, sizeof( STACKFRAME64 ) );
 
-  process                = GetCurrentProcess();
-  thread                 = GetCurrentThread();
-  displacement           = 0;
-#if !defined(_M_AMD64)
-  stack.AddrPC.Offset    = (*ctx).Eip;
-  stack.AddrPC.Mode      = AddrModeFlat;
-  stack.AddrStack.Offset = (*ctx).Esp;
-  stack.AddrStack.Mode   = AddrModeFlat;
-  stack.AddrFrame.Offset = (*ctx).Ebp;
-  stack.AddrFrame.Mode   = AddrModeFlat;
-#endif
+//   process                = GetCurrentProcess();
+//   thread                 = GetCurrentThread();
+//   displacement           = 0;
+// #if !defined(_M_AMD64)
+//   stack.AddrPC.Offset    = (*ctx).Eip;
+//   stack.AddrPC.Mode      = AddrModeFlat;
+//   stack.AddrStack.Offset = (*ctx).Esp;
+//   stack.AddrStack.Mode   = AddrModeFlat;
+//   stack.AddrFrame.Offset = (*ctx).Ebp;
+//   stack.AddrFrame.Mode   = AddrModeFlat;
+// #endif
 
-  SymInitialize( process, NULL, TRUE ); //load symbols
+//   SymInitialize( process, NULL, TRUE ); //load symbols
 
-  for( frame = 0; ; frame++ )
-  {
-    //get next call from stack
-    result = StackWalk64
-    (
-#if defined(_M_AMD64)
-      IMAGE_FILE_MACHINE_AMD64
-#else
-      IMAGE_FILE_MACHINE_I386
-#endif
-      ,
-      process,
-      thread,
-      &stack,
-      &ctxCopy,
-      NULL,
-      SymFunctionTableAccess64,
-      SymGetModuleBase64,
-      NULL);
+//   for( frame = 0; ; frame++ )
+//   {
+//     //get next call from stack
+//     result = StackWalk64
+//     (
+// #if defined(_M_AMD64)
+//       IMAGE_FILE_MACHINE_AMD64
+// #else
+//       IMAGE_FILE_MACHINE_I386
+// #endif
+//       ,
+//       process,
+//       thread,
+//       &stack,
+//       &ctxCopy,
+//       NULL,
+//       SymFunctionTableAccess64,
+//       SymGetModuleBase64,
+//       NULL);
 
-    if( !result ) break;        
+//     if( !result ) break;        
 
-    //get symbol name for address
-    pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
-    pSymbol->MaxNameLen = MAX_SYM_NAME;
-    SymFromAddr(process, ( ULONG64 )stack.AddrPC.Offset, &displacement, pSymbol);
+//     //get symbol name for address
+//     pSymbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+//     pSymbol->MaxNameLen = MAX_SYM_NAME;
+//     SymFromAddr(process, ( ULONG64 )stack.AddrPC.Offset, &displacement, pSymbol);
 
-    line = (IMAGEHLP_LINE64 *)malloc(sizeof(IMAGEHLP_LINE64));
-    line->SizeOfStruct = sizeof(IMAGEHLP_LINE64);       
+//     line = (IMAGEHLP_LINE64 *)malloc(sizeof(IMAGEHLP_LINE64));
+//     line->SizeOfStruct = sizeof(IMAGEHLP_LINE64);       
 
-    //try to get line
-    if (SymGetLineFromAddr64(process, stack.AddrPC.Offset, &disp, line))
-    {
-      SDL_Log("\tat %s in %s: line: %lu: address: 0x%0X", 
-               pSymbol->Name, line->FileName, line->LineNumber, 
-               (unsigned int)pSymbol->Address);
-    }
-    else
-    { 
-      //failed to get line
-      SDL_Log("\tat %s, address 0x%0X.", pSymbol->Name, (unsigned int)pSymbol->Address);
-      hModule = NULL;
-      lstrcpyA(module,"");        
-      GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, 
-          (LPCTSTR)(stack.AddrPC.Offset), &hModule);
+//     //try to get line
+//     if (SymGetLineFromAddr64(process, stack.AddrPC.Offset, &disp, line))
+//     {
+//       SDL_Log("\tat %s in %s: line: %lu: address: 0x%0X", 
+//                pSymbol->Name, line->FileName, line->LineNumber, 
+//                (unsigned int)pSymbol->Address);
+//     }
+//     else
+//     { 
+//       //failed to get line
+//       SDL_Log("\tat %s, address 0x%0X.", pSymbol->Name, (unsigned int)pSymbol->Address);
+//       hModule = NULL;
+//       lstrcpyA(module,"");        
+//       GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, 
+//           (LPCTSTR)(stack.AddrPC.Offset), &hModule);
 
-      //at least print module name
-      if(hModule != NULL)GetModuleFileNameA(hModule,module,MaxNameLen);       
+//       //at least print module name
+//       if(hModule != NULL)GetModuleFileNameA(hModule,module,MaxNameLen);       
 
-      SDL_Log("in %s\n",module);
-    }       
+//       SDL_Log("in %s\n",module);
+//     }       
 
-    free(line);
-    line = NULL;
-  }
+//     free(line);
+//     line = NULL;
+//   }
 
-  return EXCEPTION_EXECUTE_HANDLER;
-}
+//   return EXCEPTION_EXECUTE_HANDLER;
+// }
 
 #endif
